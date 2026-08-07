@@ -1,12 +1,9 @@
-"""El maestro — la propia IA del organismo (7B) lo hace reflexionar sobre sus golpes.
+"""Propuestas de reflexión del alumno local 7B sobre golpes observados.
 
-*"Tiene su propia IA que es su maestra también."* Tras una herida, el 7B reflexiona:
-dada esta situación y esta decisión que dolió, ¿cuál es la lección? Produce una lección
-estructurada (qué evitar / qué preferir) que se graba como experiencia reforzada, de modo
-que el sesgo de decisión (E3) la recoja: la próxima vez, el organismo elige distinto.
+Codex/frontier es el maestro externo de referencia. El modelo local 7B sólo propone
+una lección estructurada; su salida es auditable y no tiene autoridad conductual.
 
-La reflexión es parte de su vida (se invoca proporcional al daño, off-hot-path). El 7B
-corre en la GPU (RTX 2070 vía llama.cpp). Gated por ``RNFE_TEACHER`` (off ⇒ sin maestro).
+La reflexión se invoca off-hot-path y está gated por ``RNFE_TEACHER``.
 """
 
 from __future__ import annotations
@@ -17,16 +14,18 @@ from typing import Any, Dict, List, Optional
 
 from runtime.storage import StorageFacade
 from runtime.organism.experience import (
-    ExperienceRecord,
+    ExperienceProvenance,
     ExperienceStore,
     WOUND_THRESHOLD,
 )
 
 _TRUE = {"1", "true", "yes", "on"}
+LOCAL_7B_PRODUCER_TYPE = "local_7b"
+BEHAVIORAL_AUTHORITY_NONE = "none"
 
 
 def teacher_enabled() -> bool:
-    """True si el maestro (7B) reflexiona sobre los golpes del organismo."""
+    """True si el alumno local 7B puede producir propuestas de reflexión."""
     return os.environ.get("RNFE_TEACHER", "").strip().lower() in _TRUE
 
 
@@ -53,7 +52,7 @@ def _extract_json(text: str) -> Optional[Dict[str, Any]]:
 
 
 class Teacher:
-    """Invoca el 7B para reflexionar sobre una herida y destilar una lección."""
+    """Puerto legado que invoca al 7B como proponente local supervisado."""
 
     def __init__(self, *, storage: StorageFacade, experience: ExperienceStore):
         self.storage = storage
@@ -93,15 +92,20 @@ class Teacher:
         valid_interventions: List[str],
         max_reflections: int = 1,
     ) -> List[Dict[str, Any]]:
-        """Reflexiona sobre las peores heridas recientes → lecciones grabadas.
+        """Reflexiona sobre las peores heridas observadas → propuestas auditables.
 
-        Devuelve las lecciones producidas (también las graba como experiencia
-        reforzada para que el sesgo de decisión las use).
+        Las propuestas nunca se graban como experiencia canónica.
         """
         if not teacher_enabled():
             return []
         experiences = self.experience.recall(organism_id=organism_id, limit=200)
-        wounds = [e for e in experiences if float(e.get("severity", 0.0)) >= WOUND_THRESHOLD and e.get("intervention")]
+        wounds = [
+            e
+            for e in experiences
+            if e.get("provenance") == ExperienceProvenance.OBSERVED_OUTCOME.value
+            and float(e.get("severity", 0.0)) >= WOUND_THRESHOLD
+            and e.get("intervention")
+        ]
         if not wounds:
             return []
         # Las heridas más profundas primero (∝ daño): el maestro atiende lo que más dolió.
@@ -125,8 +129,9 @@ class Teacher:
         severity = float(wound.get("severity", 0.0))
         alternatives = [iv for iv in valid_interventions if iv != hurt_iv]
         prompt = (
-            "You are the inner teacher of a self-preserving cognitive organism. "
-            "It just got hurt. Reflect briefly and give ONE lesson so it does not repeat the mistake.\n"
+            "You are the local 7B supervised reflection proposer of a self-preserving "
+            "cognitive organism. Codex/frontier is the external teacher of reference. "
+            "You have no behavioral authority. Propose ONE lesson after this wound.\n"
             f"Situation: scenario='{scenario}', regime='{regime}'.\n"
             f"It chose intervention '{hurt_iv}' and suffered a wound (severity {severity:.2f}, "
             f"viability_margin {float(wound.get('viability_margin',0)):.2f}, ioc {float(wound.get('ioc',0)):.2f}, "
@@ -162,44 +167,25 @@ class Teacher:
             "prefer": prefer,
             "lesson": lesson_text,
             "from_severity": severity,
+            "producer_type": LOCAL_7B_PRODUCER_TYPE,
+            "behavioral_authority": BEHAVIORAL_AUTHORITY_NONE,
         }
         self._persist_lesson(lesson)
         return lesson
 
     def _persist_lesson(self, lesson: Dict[str, Any]) -> None:
-        """Graba la lección como experiencia REFORZADA (refuerza la cicatriz de lo que evitar,
-        y una experiencia benigna de lo que preferir) para que el sesgo E3 la recoja, y como evento."""
-        situation = lesson["situation_key"]
-        scenario = lesson["scenario"]
-        regime = lesson["regime"]
-        # La cicatriz enseñada es fuerte (el maestro certifica el golpe): severidad alta.
-        avoid_scar = min(1.0, 0.5 + 0.5 * float(lesson.get("from_severity", 0.6)))
-        try:
-            self.experience.record(ExperienceRecord(
-                organism_id=lesson.get("organism_id", ""), run_id="teacher", episode_id=f"lesson-{situation}",
-                situation_key=situation, scenario=scenario, regime=regime,
-                intervention=str(lesson["avoid"]), severity=round(avoid_scar, 4), wound=True,
-                viability_margin=0.0, ioc=0.0, risk=1.0, reward=-1.0,
-                action="teacher_scar", verdict="uncertified",
-                metadata={"lesson": lesson.get("lesson"), "origin": "teacher"},
-            ))
-            if lesson.get("prefer"):
-                self.experience.record(ExperienceRecord(
-                    organism_id=lesson.get("organism_id", ""), run_id="teacher", episode_id=f"lesson-prefer-{situation}",
-                    situation_key=situation, scenario=scenario, regime=regime,
-                    intervention=str(lesson["prefer"]), severity=0.0, wound=False,
-                    viability_margin=1.0, ioc=1.0, risk=0.0, reward=1.0,
-                    action="teacher_prefer", verdict="certified",
-                    metadata={"lesson": lesson.get("lesson"), "origin": "teacher"},
-                ))
-        except Exception:
-            pass
+        """Persiste una propuesta auditable con autoridad conductual nula."""
+        proposal = {
+            **lesson,
+            "producer_type": LOCAL_7B_PRODUCER_TYPE,
+            "behavioral_authority": BEHAVIORAL_AUTHORITY_NONE,
+        }
         try:
             self.storage.append_event(
                 event_type="experience.lesson",
-                run_id="teacher",
-                source="teacher",
-                payload=lesson,
+                run_id=LOCAL_7B_PRODUCER_TYPE,
+                source=LOCAL_7B_PRODUCER_TYPE,
+                payload=proposal,
             )
         except Exception:
             pass

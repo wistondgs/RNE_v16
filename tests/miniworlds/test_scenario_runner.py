@@ -189,6 +189,29 @@ class TestScenarioEpisodeRunner:
         ]
         storage.close()
 
+    def test_experience_feature_off_creates_no_behavioral_memory(
+        self, monkeypatch, tmp_path: Path
+    ):
+        monkeypatch.delenv("RNFE_EXPERIENCE", raising=False)
+        storage = _storage(tmp_path)
+        runner = ScenarioEpisodeRunner(
+            storage=storage,
+            run_id="run-experience-off",
+            scenario="thermal_homeostasis",
+        )
+
+        result = runner.run_episode(external_input=0.05)
+
+        assert runner._experience is None
+        assert result.get("experience") is None
+        assert result.get("episode", {}).get("experience") is None
+        assert storage.retrieve_memory_records(
+            run_id=runner._organism_id,
+            scales=["experience"],
+            limit=20,
+        ) == []
+        storage.close()
+
     def test_runner_with_resource_scenario(self, tmp_path: Path):
         """Runner funciona con escenario de recursos."""
         storage = _storage(tmp_path)

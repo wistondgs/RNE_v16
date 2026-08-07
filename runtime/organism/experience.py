@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from runtime.storage import StorageFacade
@@ -28,6 +29,25 @@ _TRUE = {"1", "true", "yes", "on"}
 EXPERIENCE_SCALE = "experience"
 WOUND_THRESHOLD = 0.5   # severidad ≥ esto = golpe
 GAIN_THRESHOLD = 0.30   # severidad ≤ esto = buen episodio
+
+
+class ExperienceProvenance(str, Enum):
+    """Procedencia admitida por la memoria de experiencia canónica."""
+
+    OBSERVED_OUTCOME = "observed_outcome"
+
+
+# Estos valores siguen siendo legibles/auditables, pero nunca son experiencia
+# vivida. La elegibilidad no depende de esta lista: sólo OBSERVED_OUTCOME admite.
+_KNOWN_NON_OBSERVED_PROVENANCE = frozenset(
+    {
+        "codex_proposal",
+        "local_7b_proposal",
+        "teacher_scar",
+        "teacher_prefer",
+        "validated_lesson",
+    }
+)
 
 
 def experience_enabled() -> bool:
@@ -116,8 +136,13 @@ class ExperienceRecord:
     reward: float
     action: str
     verdict: str
+    provenance: ExperienceProvenance
     failure_class: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.provenance is not ExperienceProvenance.OBSERVED_OUTCOME:
+            raise ValueError("experience_provenance_must_be_observed_outcome")
 
     def to_structure(self) -> Dict[str, Any]:
         return {
@@ -133,6 +158,7 @@ class ExperienceRecord:
             "reward": self.reward,
             "action": self.action,
             "verdict": self.verdict,
+            "provenance": self.provenance.value,
             "failure_class": self.failure_class,
         }
 
@@ -147,6 +173,10 @@ class SituationWisdom:
     avoid: Optional[str]             # la intervención que más lo hirió
     prefer: Optional[str]            # la que mejor le fue (menor severidad)
     max_severity: float              # el golpe más profundo recordado en esta situación
+    retrieved_n: int = 0
+    rejected_missing_provenance: int = 0
+    rejected_unknown_provenance: int = 0
+    rejected_non_observed_provenance: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -156,6 +186,10 @@ class SituationWisdom:
             "avoid": self.avoid,
             "prefer": self.prefer,
             "max_severity": self.max_severity,
+            "retrieved_n": self.retrieved_n,
+            "rejected_missing_provenance": self.rejected_missing_provenance,
+            "rejected_unknown_provenance": self.rejected_unknown_provenance,
+            "rejected_non_observed_provenance": self.rejected_non_observed_provenance,
         }
 
 
@@ -195,6 +229,7 @@ def build_experience(
         viability_margin=round(_clamp01(viability_margin), 4), ioc=round(_clamp01(ioc), 4),
         risk=round(_clamp01(risk), 4), reward=round(float(reward), 4),
         action=str(action or ""), verdict="certified" if certified else "uncertified",
+        provenance=ExperienceProvenance.OBSERVED_OUTCOME,
         failure_class=failure_class,
     )
 
@@ -255,8 +290,22 @@ class ExperienceStore:
         return out
 
     def wisdom(self, *, organism_id: str, situation: str) -> SituationWisdom:
-        """Sabiduría acumulada de una situación: qué evitar / qué preferir, ∝ daño."""
-        exps = self.recall(organism_id=organism_id, situation=situation, limit=300)
+        """Sabiduría canónica: sólo outcomes vividos con procedencia explícita."""
+        recalled = self.recall(organism_id=organism_id, situation=situation, limit=300)
+        exps: List[Dict[str, Any]] = []
+        rejected_missing = 0
+        rejected_unknown = 0
+        rejected_non_observed = 0
+        for exp in recalled:
+            provenance = exp.get("provenance")
+            if provenance == ExperienceProvenance.OBSERVED_OUTCOME.value:
+                exps.append(exp)
+            elif provenance is None or not str(provenance).strip():
+                rejected_missing += 1
+            elif provenance in _KNOWN_NON_OBSERVED_PROVENANCE:
+                rejected_non_observed += 1
+            else:
+                rejected_unknown += 1
         scar: Dict[str, float] = {}
         relief: Dict[str, List[float]] = {}
         max_sev = 0.0
@@ -275,4 +324,8 @@ class ExperienceStore:
         return SituationWisdom(
             situation_key=situation, n=len(exps), scar=scar,
             avoid=avoid, prefer=prefer, max_severity=round(max_sev, 4),
+            retrieved_n=len(recalled),
+            rejected_missing_provenance=rejected_missing,
+            rejected_unknown_provenance=rejected_unknown,
+            rejected_non_observed_provenance=rejected_non_observed,
         )
