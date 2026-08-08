@@ -7,7 +7,12 @@ import pytest
 from runtime.experiments.ea1.budget import EpistemicBudget
 from runtime.experiments.ea1.contracts import Arm, BeliefRevision, ExperimentMemoryRecord, ExperimentProposal, Producer, ScenarioFamily, TheoryState
 from runtime.experiments.ea1.evaluator import EvaluationEvidence, FirstCrossingTracker, SourceAcquisitionEvaluator
-from runtime.experiments.ea1.harness import CanonicalOutcomeResolver, NeutralExperimentHarness
+from runtime.experiments.ea1.harness import (
+    EA1_EXECUTION_AUTHORIZATION_FIELD,
+    CanonicalOutcomeResolver,
+    ExecutionAuthorization,
+    NeutralExperimentHarness,
+)
 from runtime.experiments.ea1.ledger import ExperimentLedger, StorageLedgerBackend
 from runtime.experiments.ea1.scenarios import make_smoke_fixture
 from runtime.organism.dynamic_state import OrganismDynamicState
@@ -21,12 +26,12 @@ def storage(tmp_path: Path):
     return StorageFactory.create_facade(StorageConfig(mode="sqlite", sqlite_db_path=str(tmp_path / "ea1.db"), postgres_dsn=None, artifact_root=tmp_path / "artifacts", prefer_postgres_reads=False, strict_dual_write=False))
 
 
-def commit_f1a(storage, *, action_id: str) -> None:
-    before = OrganismDynamicState.create(organism_id="organism", lineage_id="lineage", run_id="run", episode_id="episode", life_step=0, logical_time=1, previous_state_hash=None, world={}, regime={}, organism={}, memory={}, neural={}, policy={}, resources={}, homeostasis={})
-    after = OrganismDynamicState.create(organism_id="organism", lineage_id="lineage", run_id="run", episode_id="episode", life_step=1, logical_time=2, previous_state_hash=before.state_hash, world={"observed": True}, regime={}, organism={}, memory={}, neural={}, policy={}, resources={}, homeostasis={})
+def commit_f1a(storage, *, action_id: str, authorization: ExecutionAuthorization) -> None:
+    before = OrganismDynamicState.create(organism_id="organism", lineage_id="lineage", run_id="run", episode_id="episode", life_step=0, logical_time=12, previous_state_hash=None, world={}, regime={}, organism={}, memory={}, neural={}, policy={}, resources={}, homeostasis={})
+    after = OrganismDynamicState.create(organism_id="organism", lineage_id="lineage", run_id="run", episode_id="episode", life_step=1, logical_time=13, previous_state_hash=before.state_hash, world={"observed": True}, regime={}, organism={}, memory={}, neural={}, policy={}, resources={}, homeostasis={})
     facts = {"organism_id": "organism", "run_id": "run", "episode_id": "episode", "scenario": "ea1-smoke", "regime": "dev", "main_variable": "signal", "causal_status": "", "intervention": action_id, "viability_margin": .8, "ioc": .7, "risk": .25, "reward": .1, "action": "act", "certified": False, "closure_passed": True, "viability_delta": .1}
     transition = DynamicLifeChain(organism_id="organism", lineage_id="lineage", run_id="run").commit(
-        state_before=before, state_after=after, trace_group_id="trace", action_proposals=(), authoritative_decision={}, committed_intervention={"intervention": action_id}, external_input=None,
+        state_before=before, state_after=after, trace_group_id="trace", action_proposals=(), authoritative_decision={EA1_EXECUTION_AUTHORIZATION_FIELD: authorization.to_payload()}, committed_intervention={"intervention": action_id}, external_input=None,
         factual_outcome={"world_state_hash": "world", "experience_facts": facts}, counterfactual_evidence={}, certificate={}, reward={"reward": .1}, memory_delta={}, neural_state_delta={}, policy_delta={}, resource_delta={}, viability_delta={}, regime_before={}, regime_after={}, rollback_refuge_result={},
         outcome_authority=_issue_canonical_outcome_authority(storage=storage, owner=ACTING_OWNER),
     )
@@ -42,8 +47,15 @@ def prepared_harness(storage):
     proposal = ExperimentProposal("p1", 1, action.action_id, "pred", .2, .1, Producer.ORGANISM)
     harness.register_theory(state)
     harness.register_proposals(1, (proposal,), fixture.public.actions)
-    receipt, _ = harness.select(1, proposal, action, selector="test")
-    return harness, ledger, receipt, action
+    receipt, authorization = harness.select(
+        1,
+        proposal,
+        action,
+        selector="test",
+        organism_id="organism",
+        episode_id="episode",
+    )
+    return harness, ledger, receipt, authorization, action
 
 
 # T7 — no epistemic object can enter ExperienceStore or SituationWisdom.
@@ -77,10 +89,11 @@ def test_t7_predicted_or_epistemic_artifacts_cannot_mint_observed_outcomes(tmp_p
 # T8 — real canonical F1A event, selected first, then read-only reference.
 def test_t8_real_f1a_outcome_is_resolved_without_duplicate_authority(tmp_path: Path) -> None:
     db = storage(tmp_path)
-    harness, ledger, receipt, action = prepared_harness(db)
-    commit_f1a(db, action_id=action.action_id)
-    reference = CanonicalOutcomeResolver(db).resolve(receipt, organism_id="organism", episode_id="episode")
-    harness.attach_outcome(1, reference)
+    harness, ledger, receipt, authorization, action = prepared_harness(db)
+    commit_f1a(db, action_id=action.action_id, authorization=authorization)
+    resolver = CanonicalOutcomeResolver(db, ledger)
+    reference = resolver.resolve(receipt)
+    harness.attach_outcome(1, reference, resolver=resolver)
     kinds = [entry.kind for entry in ledger.entries("run")]
     assert kinds == ["theory", "proposal_set", "selection", "outcome_reference"]
     assert reference.committed_intervention == action.action_id
@@ -88,10 +101,11 @@ def test_t8_real_f1a_outcome_is_resolved_without_duplicate_authority(tmp_path: P
 
 def test_t8_complete_neutral_route_reaches_post_run_acquisition_evaluation(tmp_path: Path) -> None:
     db = storage(tmp_path)
-    harness, ledger, receipt, action = prepared_harness(db)
-    commit_f1a(db, action_id=action.action_id)
-    reference = CanonicalOutcomeResolver(db).resolve(receipt, organism_id="organism", episode_id="episode")
-    harness.attach_outcome(1, reference)
+    harness, ledger, receipt, authorization, action = prepared_harness(db)
+    commit_f1a(db, action_id=action.action_id, authorization=authorization)
+    resolver = CanonicalOutcomeResolver(db, ledger)
+    reference = resolver.resolve(receipt)
+    harness.attach_outcome(1, reference, resolver=resolver)
     successor = TheoryState("t2", 1, .80, .15, .05, "h1", (reference.reference_id,), predecessor_state_id="t1", version=2, logical_time=20)
     revision = BeliefRevision("rev1", 1, "t1", successor, reference.reference_id, "canonical evidence")
     harness.revise(revision)
@@ -110,7 +124,7 @@ def test_t8_complete_neutral_route_reaches_post_run_acquisition_evaluation(tmp_p
 # T13 persistence survives process-local ledger reconstruction and remains idempotent.
 def test_t13_storage_ledger_reconstructs_exact_chain(tmp_path: Path) -> None:
     db = storage(tmp_path)
-    _, ledger, _, _ = prepared_harness(db)
+    _, ledger, _, _, _ = prepared_harness(db)
     reconstructed = ExperimentLedger(StorageLedgerBackend(db))
     assert reconstructed.entries("run") == ledger.entries("run")
 

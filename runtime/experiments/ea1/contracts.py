@@ -223,18 +223,38 @@ class ExperimentSelectionReceipt:
     budget_before: BudgetSnapshot
     budget_after: BudgetSnapshot
     proposal_set_hash: str
+    execution_id: str
+    authorization_id: str
+    organism_id: str
+    episode_id: str
     block_id: str = "block-unknown"
     scenario_family: ScenarioFamily = ScenarioFamily.S1
     candidate_proposal_ids: tuple[str, ...] = ()
     scores_available: tuple[tuple[str, float], ...] = ()
     logical_time: int = 0
 
+    def __post_init__(self) -> None:
+        if not all(
+            str(value or "").strip()
+            for value in (
+                self.receipt_id,
+                self.run_id,
+                self.proposal_id,
+                self.action_id,
+                self.execution_id,
+                self.authorization_id,
+                self.organism_id,
+                self.episode_id,
+            )
+        ):
+            raise ContractError("selection_execution_identity_required")
+
     @property
     def receipt_hash(self) -> str:
         return digest(self._unsigned_payload())
 
     def _unsigned_payload(self) -> dict[str, Any]:
-        return {"receipt_id": self.receipt_id, "run_id": self.run_id, "arm": self.arm, "epoch": self.epoch, "proposal_id": self.proposal_id, "action_id": self.action_id, "selector": self.selector, "random_seed": self.random_seed, "random_draw_index": self.random_draw_index, "budget_before": self.budget_before, "budget_after": self.budget_after, "proposal_set_hash": self.proposal_set_hash, "block_id": self.block_id, "scenario_family": self.scenario_family, "candidate_proposal_ids": self.candidate_proposal_ids, "scores_available": self.scores_available, "logical_time": self.logical_time}
+        return {"receipt_id": self.receipt_id, "run_id": self.run_id, "arm": self.arm, "epoch": self.epoch, "proposal_id": self.proposal_id, "action_id": self.action_id, "selector": self.selector, "random_seed": self.random_seed, "random_draw_index": self.random_draw_index, "budget_before": self.budget_before, "budget_after": self.budget_after, "proposal_set_hash": self.proposal_set_hash, "execution_id": self.execution_id, "authorization_id": self.authorization_id, "organism_id": self.organism_id, "episode_id": self.episode_id, "block_id": self.block_id, "scenario_family": self.scenario_family, "candidate_proposal_ids": self.candidate_proposal_ids, "scores_available": self.scores_available, "logical_time": self.logical_time}
 
     def to_payload(self) -> dict[str, Any]:
         return {**self._unsigned_payload(), "tokens_before": self.budget_before.tokens_used, "tokens_consumed": self.budget_after.tokens_used - self.budget_before.tokens_used, "tokens_after": self.budget_after.tokens_used, "tokens_remaining": self.budget_after.max_tokens - self.budget_after.tokens_used, "receipt_hash": self.receipt_hash}
@@ -249,9 +269,32 @@ class CanonicalOutcomeReference:
     witness_id: str
     committed_intervention: str
     outcome_hash: str
+    execution_id: str
+    authorization_id: str
+    organism_id: str
+    episode_id: str
+    canonical_event_logical_time: int
+
+    def __post_init__(self) -> None:
+        if not all(
+            str(value or "").strip()
+            for value in (
+                self.reference_id,
+                self.selection_receipt_id,
+                self.source_event_type,
+                self.source_record_id,
+                self.witness_id,
+                self.committed_intervention,
+                self.execution_id,
+                self.authorization_id,
+                self.organism_id,
+                self.episode_id,
+            )
+        ) or self.canonical_event_logical_time < 0:
+            raise ContractError("canonical_outcome_binding_identity_required")
 
     def to_payload(self) -> dict[str, Any]:
-        return {name: getattr(self, name) for name in ("reference_id", "selection_receipt_id", "source_event_type", "source_record_id", "witness_id", "committed_intervention", "outcome_hash")}
+        return {name: getattr(self, name) for name in ("reference_id", "selection_receipt_id", "source_event_type", "source_record_id", "witness_id", "committed_intervention", "outcome_hash", "execution_id", "authorization_id", "organism_id", "episode_id", "canonical_event_logical_time")}
 
 
 @dataclass(frozen=True, slots=True)
