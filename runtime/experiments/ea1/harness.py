@@ -11,7 +11,7 @@ from .budget import EpistemicBudget
 from .canonical import digest, stable_id
 from .contracts import (
     Arm, BeliefRevision, CanonicalOutcomeReference, ExperimentMemoryRecord,
-    ExperimentProposal, ExperimentSelectionReceipt, PublicAction, TheoryState,
+    DivergentPredictionSet, ExperimentProposal, ExperimentSelectionReceipt, PublicAction, TheoryState,
     SourceAcquisitionReceipt, AcquisitionStatus,
 )
 from .ledger import ExperimentLedger
@@ -73,6 +73,7 @@ class NeutralExperimentHarness:
         self.block_id, self.scenario_family = block_id, scenario_family
         self._phase: dict[int, EpochPhase] = {}
         self._theory: dict[int, TheoryState] = {}
+        self._predictions: dict[int, DivergentPredictionSet] = {}
         self._proposals: dict[int, tuple[ExperimentProposal, ...]] = {}
         self._selection: dict[int, ExperimentSelectionReceipt] = {}
         self._outcome: dict[int, CanonicalOutcomeReference] = {}
@@ -97,7 +98,20 @@ class NeutralExperimentHarness:
         self.ledger.append(run_id=self.run_id, arm=self.arm.value, logical_time=epoch * 10 + 1, kind="proposal_set", artifact=wrapper)
         self._proposals[epoch], self._phase[epoch] = proposals, EpochPhase.PROPOSALS
 
-    def select(self, epoch: int, proposal: ExperimentProposal, action: PublicAction, *, selector: str, random_seed: int | None = None, random_draw_index: int | None = None) -> tuple[ExperimentSelectionReceipt, ExecutionAuthorization]:
+    def register_predictions(self, epoch: int, predictions: DivergentPredictionSet) -> None:
+        self._require(epoch, EpochPhase.THEORY)
+        if predictions.theory_state_id and predictions.theory_state_id != self._theory[epoch].state_id:
+            raise ValueError("prediction_theory_state_mismatch")
+        self.ledger.append(
+            run_id=self.run_id,
+            arm=self.arm.value,
+            logical_time=epoch * 10 + 1,
+            kind="prediction_set",
+            artifact=predictions,
+        )
+        self._predictions[epoch] = predictions
+
+    def select(self, epoch: int, proposal: ExperimentProposal, action: PublicAction, *, selector: str, random_seed: int | None = None, random_draw_index: int | None = None, tie_break_result: str = "") -> tuple[ExperimentSelectionReceipt, ExecutionAuthorization]:
         self._require(epoch, EpochPhase.PROPOSALS)
         if proposal not in self._proposals[epoch] or proposal.action_id != action.action_id:
             raise ValueError("selection_not_in_registered_proposal_set")
@@ -106,16 +120,95 @@ class NeutralExperimentHarness:
         consumption = self.budget.consume(receipt_id, action, epoch)
         from .contracts import ScenarioFamily
         receipt = ExperimentSelectionReceipt(
-            receipt_id, self.run_id, self.arm, epoch, proposal.proposal_id, action.action_id,
-            selector, random_seed, random_draw_index, consumption.before, consumption.after,
-            digest([p.to_payload() for p in self._proposals[epoch]]), self.block_id,
-            ScenarioFamily(self.scenario_family), tuple(p.proposal_id for p in self._proposals[epoch]),
-            tuple((p.proposal_id, p.expected_information_gain) for p in self._proposals[epoch]), epoch * 10 + 2,
+            receipt_id=receipt_id,
+            run_id=self.run_id,
+            arm=self.arm,
+            epoch=epoch,
+            proposal_id=proposal.proposal_id,
+            action_id=action.action_id,
+            selector=selector,
+            random_seed=random_seed,
+            random_draw_index=random_draw_index,
+            budget_before=consumption.before,
+            budget_after=consumption.after,
+            proposal_set_hash=digest([p.to_payload() for p in self._proposals[epoch]]),
+            block_id=self.block_id,
+            scenario_family=ScenarioFamily(self.scenario_family),
+            candidate_proposal_ids=tuple(p.proposal_id for p in self._proposals[epoch]),
+            scores_available=tuple(
+                (p.proposal_id, float(p.voi_score if p.voi_score is not None else p.expected_information_gain))
+                for p in self._proposals[epoch]
+            ),
+            logical_time=epoch * 10 + 2,
+            theory_state_id=self._theory[epoch].state_id,
+            prediction_set_id=proposal.prediction_set_id,
+            policy_id=selector,
+            score_components_by_proposal=tuple(
+                (p.proposal_id, p.voi_terms) for p in self._proposals[epoch]
+            ),
+            tie_break_result=tie_break_result,
         )
         self.ledger.append(run_id=self.run_id, arm=self.arm.value, logical_time=epoch * 10 + 2, kind="selection", artifact=receipt)
         self._selection[epoch], self._phase[epoch] = receipt, EpochPhase.SELECTED
         auth = ExecutionAuthorization(stable_id("execauth", receipt.to_payload()), receipt.receipt_id, action.action_id, action.action_id)
         return receipt, auth
+
+    def abstain(
+        self,
+        epoch: int,
+        *,
+        selector: str,
+        reason: str,
+        tie_break_result: str = "abstain",
+    ) -> ExperimentSelectionReceipt:
+        self._require(epoch, EpochPhase.PROPOSALS)
+        proposals = self._proposals[epoch]
+        base = {
+            "run_id": self.run_id,
+            "arm": self.arm.value,
+            "epoch": epoch,
+            "selector": selector,
+            "reason": reason,
+        }
+        from .contracts import ScenarioFamily
+        receipt = ExperimentSelectionReceipt(
+            receipt_id=stable_id("select-abstain", base),
+            run_id=self.run_id,
+            arm=self.arm,
+            epoch=epoch,
+            proposal_id="abstain",
+            action_id="abstain",
+            selector=selector,
+            random_seed=None,
+            random_draw_index=None,
+            budget_before=self.budget.snapshot,
+            budget_after=self.budget.snapshot,
+            proposal_set_hash=digest([p.to_payload() for p in proposals]),
+            block_id=self.block_id,
+            scenario_family=ScenarioFamily(self.scenario_family),
+            candidate_proposal_ids=tuple(p.proposal_id for p in proposals),
+            scores_available=tuple(
+                (p.proposal_id, float(p.voi_score if p.voi_score is not None else p.expected_information_gain))
+                for p in proposals
+            ),
+            logical_time=epoch * 10 + 2,
+            theory_state_id=self._theory[epoch].state_id,
+            prediction_set_id=proposals[0].prediction_set_id if proposals else "",
+            policy_id=selector,
+            score_components_by_proposal=tuple((p.proposal_id, p.voi_terms) for p in proposals),
+            tie_break_result=tie_break_result,
+            abstention=True,
+            abstention_reason=reason,
+        )
+        self.ledger.append(
+            run_id=self.run_id,
+            arm=self.arm.value,
+            logical_time=epoch * 10 + 2,
+            kind="selection",
+            artifact=receipt,
+        )
+        self._selection[epoch], self._phase[epoch] = receipt, EpochPhase.SELECTED
+        return receipt
 
     def attach_outcome(self, epoch: int, reference: CanonicalOutcomeReference) -> None:
         self._require(epoch, EpochPhase.SELECTED)

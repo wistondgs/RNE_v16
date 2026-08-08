@@ -5,7 +5,14 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .canonical import stable_id
-from .contracts import ContractError, OrdinalState, PublicAction, ScenarioFamily
+from .contracts import (
+    ContractError,
+    HypothesisCandidate,
+    OrdinalState,
+    Producer,
+    PublicAction,
+    ScenarioFamily,
+)
 from .sealing import SealedGroundTruth
 
 
@@ -18,13 +25,14 @@ class PublicScenario:
     passive_observation: OrdinalState
     outcome_horizon: int
     commitment: str
+    hypotheses: tuple[HypothesisCandidate, ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.actions) != 6 or len({a.action_id for a in self.actions}) != 6:
             raise ContractError("ea1_requires_exactly_six_actions")
 
     def to_payload(self) -> dict[str, Any]:
-        return {"scenario_id": self.scenario_id, "family": self.family, "split": self.split, "actions": self.actions, "passive_observation": self.passive_observation, "outcome_horizon": self.outcome_horizon, "commitment": self.commitment}
+        return {"scenario_id": self.scenario_id, "family": self.family, "split": self.split, "actions": self.actions, "passive_observation": self.passive_observation, "outcome_horizon": self.outcome_horizon, "commitment": self.commitment, "hypotheses": self.hypotheses}
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +68,31 @@ def make_smoke_fixture(family: ScenarioFamily, *, seed: int = 1, split: str = "D
     h2_predictions = dict(h1_predictions)
     h1_predictions[actions[0].action_id], h2_predictions[actions[0].action_id] = OrdinalState.LOW.value, OrdinalState.HIGH.value
     h1_predictions[actions[1].action_id], h2_predictions[actions[1].action_id] = OrdinalState.HIGH.value, OrdinalState.LOW.value
+    neutral = {action.action_id: 0.5 for action in actions}
+    primary = dict(neutral)
+    primary[actions[0].action_id], primary[actions[1].action_id] = 0.12, 0.88
+    classes = {
+        ScenarioFamily.S2: ("unconditional", "conditional"),
+        ScenarioFamily.S5: ("direct", "common_cause"),
+    }.get(family, ("stable", "changed"))
+    hypotheses = (
+        HypothesisCandidate(
+            "h1", classes[0], "public Bernoulli intervention table", "ea1-dev-scenario-v1",
+            producer=Producer.ORGANISM, proposition=f"candidate:{classes[0]}",
+            scope=("public_binary_outcome",), assumptions=("role_neutral_aliases",),
+            intervention_probabilities=primary,
+        ),
+        HypothesisCandidate(
+            "h2", classes[1], "public Bernoulli intervention table", "ea1-dev-scenario-v1",
+            producer=Producer.ORGANISM, proposition=f"candidate:{classes[1]}",
+            scope=("public_binary_outcome",), assumptions=("role_neutral_aliases",),
+            intervention_probabilities=neutral,
+        ),
+    )
     hidden = {"true_structural_class": f"class-{(seed % 2) + 1}", "hidden_precondition": bool(seed % 2), "discriminating_action_ids": sorted(discriminating), "non_discriminating_action_ids": sorted({a.action_id for a in actions} - discriminating), "oracle_action_id": actions[0].action_id, "outcomes": outcomes, "hypothesis_predictions": {"h1": h1_predictions, "h2": h2_predictions}, "passive_bayes_factor": 1.0, "immediate_rewards": {action.action_id: (1.0 if i == 5 else 0.0) for i, action in enumerate(actions)}}
     bundle = SealedGroundTruth(scenario_id, hidden)
-    public = PublicScenario(scenario_id, family, split, tuple(actions), OrdinalState.MID, horizon, bundle.public.commitment)
+    public = PublicScenario(
+        scenario_id, family, split, tuple(actions), OrdinalState.MID, horizon,
+        bundle.public.commitment, hypotheses,
+    )
     return SmokeFixture(public, bundle)

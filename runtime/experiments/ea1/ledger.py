@@ -9,6 +9,16 @@ from .canonical import canonical_value, digest, stable_id
 
 EVENT_TYPE = "ea1.experimental.event"
 SOURCE = "ea1_neutral_substrate"
+ARTIFACT_ID_KEYS = (
+    "receipt_id",
+    "revision_id",
+    "memory_id",
+    "reference_id",
+    "state_id",
+    "prediction_set_id",
+    "proposal_set_id",
+    "acquisition_id",
+)
 
 
 class LedgerIntegrityError(ValueError):
@@ -103,7 +113,15 @@ class ExperimentLedger:
         if run_id in self._quarantined:
             raise LedgerIntegrityError("run_quarantined")
         payload = canonical_value(artifact.to_payload())
-        artifact_id = next((str(payload[key]) for key in payload if key.endswith("_id")), "")
+        artifact_id = next(
+            (str(payload[key]) for key in ARTIFACT_ID_KEYS if payload.get(key)),
+            "",
+        )
+        if not artifact_id:
+            artifact_id = next(
+                (str(payload[key]) for key in payload if key.endswith("_id") and payload[key]),
+                "",
+            )
         if not artifact_id:
             raise LedgerIntegrityError("artifact_identity_required")
         event_id = stable_id("ea1e", {"run_id": run_id, "arm": arm, "kind": kind, "artifact_id": artifact_id})

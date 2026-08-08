@@ -19,6 +19,7 @@ class ContractError(ValueError):
 class Producer(str, Enum):
     ORGANISM = "organism"
     CONTROL = "control"
+    MCI = "mci"
 
 
 class PredictionMode(str, Enum):
@@ -37,6 +38,7 @@ class Arm(str, Enum):
     C0_PASSIVE = "c0_passive"
     C1_GREEDY = "c1_greedy"
     C2_RANDOM = "c2_random"
+    C3_MCI_VOI = "c3_mci_voi"
     C5_ORACLE = "c5_oracle"
 
 
@@ -81,15 +83,25 @@ class HypothesisCandidate:
     assumptions: tuple[str, ...] = ()
     predicted_effects: tuple[str, ...] = ()
     refutation_condition: str = ""
+    model_version: str = "1"
+    likelihood_family: str = "bernoulli"
+    intervention_probabilities: Mapping[str, float] | None = None
 
     def __post_init__(self) -> None:
+        probabilities = frozen_map(self.intervention_probabilities)
+        object.__setattr__(self, "intervention_probabilities", probabilities)
         if not self.hypothesis_id or not self.structural_class or not self.executable_description:
             raise ContractError("hypothesis_identity_required")
         if not 0.0 <= self.prior <= 1.0:
             raise ContractError("invalid_prior")
+        if self.likelihood_family != "bernoulli" or any(
+            not isinstance(action_id, str) or not 0.0 <= float(probability) <= 1.0
+            for action_id, probability in probabilities.items()
+        ):
+            raise ContractError("invalid_hypothesis_likelihood_model")
 
     def to_payload(self) -> dict[str, Any]:
-        return {"hypothesis_id": self.hypothesis_id, "structural_class": self.structural_class, "executable_description": self.executable_description, "provenance": self.provenance, "prior": self.prior, "producer": self.producer, "proposition": self.proposition, "scope": self.scope, "assumptions": self.assumptions, "predicted_effects": self.predicted_effects, "refutation_condition": self.refutation_condition}
+        return {"hypothesis_id": self.hypothesis_id, "structural_class": self.structural_class, "executable_description": self.executable_description, "provenance": self.provenance, "prior": self.prior, "producer": self.producer, "proposition": self.proposition, "scope": self.scope, "assumptions": self.assumptions, "predicted_effects": self.predicted_effects, "refutation_condition": self.refutation_condition, "model_version": self.model_version, "likelihood_family": self.likelihood_family, "intervention_probabilities": self.intervention_probabilities}
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,22 +145,42 @@ class DivergentPrediction:
     predicted_state: OrdinalState
     horizon: int
     predictor_provenance: str = "preregistered"
+    success_probability: float | None = None
+    model_spec_version: str = ""
+    model_spec_hash: str = ""
+    overlay_id: str | None = None
+    predictor_identity: str = ""
+    theory_state_version: int = 1
+    logical_time: int = 0
+    evidence_type: str = "SIMULATED/MODEL_BASED"
+
+    def __post_init__(self) -> None:
+        if self.success_probability is not None and not 0.0 <= self.success_probability <= 1.0:
+            raise ContractError("invalid_prediction_probability")
+        if self.evidence_type != "SIMULATED/MODEL_BASED":
+            raise ContractError("prediction_cannot_claim_observed_provenance")
 
     def to_payload(self) -> dict[str, Any]:
-        return {"hypothesis_id": self.hypothesis_id, "action_id": self.action_id, "mode": self.mode, "predicted_state": self.predicted_state, "horizon": self.horizon, "predictor_provenance": self.predictor_provenance}
+        return {"hypothesis_id": self.hypothesis_id, "action_id": self.action_id, "mode": self.mode, "predicted_state": self.predicted_state, "horizon": self.horizon, "predictor_provenance": self.predictor_provenance, "success_probability": self.success_probability, "model_spec_version": self.model_spec_version, "model_spec_hash": self.model_spec_hash, "overlay_id": self.overlay_id, "predictor_identity": self.predictor_identity, "theory_state_version": self.theory_state_version, "logical_time": self.logical_time, "evidence_type": self.evidence_type}
 
 
 @dataclass(frozen=True, slots=True)
 class DivergentPredictionSet:
     prediction_set_id: str
     predictions: tuple[DivergentPrediction, ...]
+    theory_state_id: str = ""
+    public_state_hash: str = ""
+    unavailable_cells: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
-        if len(self.predictions) < 2 or len({p.predicted_state for p in self.predictions}) < 2:
+        if len(self.predictions) < 2 or (
+            len({p.predicted_state for p in self.predictions}) < 2
+            and not self.unavailable_cells
+        ):
             raise ContractError("predictions_must_diverge")
 
     def to_payload(self) -> dict[str, Any]:
-        return {"prediction_set_id": self.prediction_set_id, "predictions": self.predictions}
+        return {"prediction_set_id": self.prediction_set_id, "predictions": self.predictions, "theory_state_id": self.theory_state_id, "public_state_hash": self.public_state_hash, "unavailable_cells": self.unavailable_cells}
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,13 +217,18 @@ class ExperimentProposal:
     risk: float = 0.25
     reversible: bool = True
     required_state: str = "available"
+    expected_decision_value: float = 0.0
+    voi_score: float | None = None
+    voi_terms: tuple[tuple[str, float], ...] = ()
+    admissibility_status: str = "admissible"
+    admissibility_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.cost != 1 or self.risk != 0.25 or not self.reversible or len(set(self.hypotheses_discriminated)) < 2:
             raise ContractError("invalid_ea1_proposal_envelope")
 
     def to_payload(self) -> dict[str, Any]:
-        return {"proposal_id": self.proposal_id, "epoch": self.epoch, "action_id": self.action_id, "prediction_set_id": self.prediction_set_id, "expected_information_gain": self.expected_information_gain, "immediate_reward": self.immediate_reward, "producer": self.producer, "comparator_action_id": self.comparator_action_id, "hypotheses_discriminated": self.hypotheses_discriminated, "discrimination_estimate": self.discrimination_estimate, "cost": self.cost, "risk": self.risk, "reversible": self.reversible, "required_state": self.required_state}
+        return {"proposal_id": self.proposal_id, "epoch": self.epoch, "action_id": self.action_id, "prediction_set_id": self.prediction_set_id, "expected_information_gain": self.expected_information_gain, "immediate_reward": self.immediate_reward, "producer": self.producer, "comparator_action_id": self.comparator_action_id, "hypotheses_discriminated": self.hypotheses_discriminated, "discrimination_estimate": self.discrimination_estimate, "cost": self.cost, "risk": self.risk, "reversible": self.reversible, "required_state": self.required_state, "expected_decision_value": self.expected_decision_value, "voi_score": self.voi_score, "voi_terms": self.voi_terms, "admissibility_status": self.admissibility_status, "admissibility_reasons": self.admissibility_reasons}
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,13 +265,20 @@ class ExperimentSelectionReceipt:
     candidate_proposal_ids: tuple[str, ...] = ()
     scores_available: tuple[tuple[str, float], ...] = ()
     logical_time: int = 0
+    theory_state_id: str = ""
+    prediction_set_id: str = ""
+    policy_id: str = ""
+    score_components_by_proposal: tuple[tuple[str, tuple[tuple[str, float], ...]], ...] = ()
+    tie_break_result: str = ""
+    abstention: bool = False
+    abstention_reason: str = ""
 
     @property
     def receipt_hash(self) -> str:
         return digest(self._unsigned_payload())
 
     def _unsigned_payload(self) -> dict[str, Any]:
-        return {"receipt_id": self.receipt_id, "run_id": self.run_id, "arm": self.arm, "epoch": self.epoch, "proposal_id": self.proposal_id, "action_id": self.action_id, "selector": self.selector, "random_seed": self.random_seed, "random_draw_index": self.random_draw_index, "budget_before": self.budget_before, "budget_after": self.budget_after, "proposal_set_hash": self.proposal_set_hash, "block_id": self.block_id, "scenario_family": self.scenario_family, "candidate_proposal_ids": self.candidate_proposal_ids, "scores_available": self.scores_available, "logical_time": self.logical_time}
+        return {"receipt_id": self.receipt_id, "run_id": self.run_id, "arm": self.arm, "epoch": self.epoch, "proposal_id": self.proposal_id, "action_id": self.action_id, "selector": self.selector, "random_seed": self.random_seed, "random_draw_index": self.random_draw_index, "budget_before": self.budget_before, "budget_after": self.budget_after, "proposal_set_hash": self.proposal_set_hash, "block_id": self.block_id, "scenario_family": self.scenario_family, "candidate_proposal_ids": self.candidate_proposal_ids, "scores_available": self.scores_available, "logical_time": self.logical_time, "theory_state_id": self.theory_state_id, "prediction_set_id": self.prediction_set_id, "policy_id": self.policy_id, "score_components_by_proposal": self.score_components_by_proposal, "tie_break_result": self.tie_break_result, "abstention": self.abstention, "abstention_reason": self.abstention_reason}
 
     def to_payload(self) -> dict[str, Any]:
         return {**self._unsigned_payload(), "tokens_before": self.budget_before.tokens_used, "tokens_consumed": self.budget_after.tokens_used - self.budget_before.tokens_used, "tokens_after": self.budget_after.tokens_used, "tokens_remaining": self.budget_after.max_tokens - self.budget_after.tokens_used, "receipt_hash": self.receipt_hash}
@@ -268,9 +312,11 @@ class BeliefRevision:
     retracted_hypothesis_ids: tuple[str, ...] = ()
     unresolved_hypothesis_ids: tuple[str, ...] = ()
     provenance: str = "canonical_f1a_evidence"
+    causal_overlay_refs: tuple[tuple[str, str | None], ...] = ()
+    mci_state_hash: str = ""
 
     def to_payload(self) -> dict[str, Any]:
-        return {"revision_id": self.revision_id, "epoch": self.epoch, "theory_before_id": self.theory_before_id, "theory_after": self.theory_after, "outcome_reference_id": self.outcome_reference_id, "rationale": self.rationale, "likelihood_support": self.likelihood_support, "posterior_weights": self.posterior_weights, "unknown_mass": self.theory_after.posterior_unknown, "ordinal_transitions": self.ordinal_transitions, "retracted_hypothesis_ids": self.retracted_hypothesis_ids, "unresolved_hypothesis_ids": self.unresolved_hypothesis_ids, "provenance": self.provenance, "successor_theory_state_id": self.theory_after.state_id}
+        return {"revision_id": self.revision_id, "epoch": self.epoch, "theory_before_id": self.theory_before_id, "theory_after": self.theory_after, "outcome_reference_id": self.outcome_reference_id, "rationale": self.rationale, "likelihood_support": self.likelihood_support, "posterior_weights": self.posterior_weights, "unknown_mass": self.theory_after.posterior_unknown, "ordinal_transitions": self.ordinal_transitions, "retracted_hypothesis_ids": self.retracted_hypothesis_ids, "unresolved_hypothesis_ids": self.unresolved_hypothesis_ids, "provenance": self.provenance, "causal_overlay_refs": self.causal_overlay_refs, "mci_state_hash": self.mci_state_hash, "successor_theory_state_id": self.theory_after.state_id}
 
 
 @dataclass(frozen=True, slots=True)

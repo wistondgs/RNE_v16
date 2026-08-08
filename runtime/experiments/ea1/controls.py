@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from .contracts import Arm, ExperimentProposal, PublicAction
+from .contracts import Arm, ExperimentProposal, PublicAction, artifact_hash
 from .canonical import digest
 from .sealing import OracleService
 
@@ -37,7 +37,7 @@ class RandomMatchedCostControl:
     def select(self, proposals: tuple[ExperimentProposal, ...], actions: tuple[PublicAction, ...]) -> ExperimentProposal | None:
         if not proposals:
             return None
-        candidates = sorted(proposals, key=lambda p: p.proposal_id)
+        candidates = sorted(proposals, key=artifact_hash)
         # Counter-based public stream: replay depends only on seed and draw index.
         counter = int(digest({"arm_seed": self.seed, "draw_index": self.draw_index}), 16)
         chosen = candidates[counter % len(candidates)]
