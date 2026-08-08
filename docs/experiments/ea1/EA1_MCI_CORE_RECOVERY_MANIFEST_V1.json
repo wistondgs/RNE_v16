@@ -1,0 +1,169 @@
+{
+  "schema_version": "ea1-mci-core-recovery-manifest-v1",
+  "p3a_base": "b2e01ae792f4e690587f4add5aabeaca020ae49f",
+  "mci_source_ref": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+  "provenance_commits": [
+    "a7ea25efb8c72cbf2ae95abed285016b18e111bc",
+    "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb"
+  ],
+  "recovery_strategy": "EXTRACT_MIXED_CLOSURE",
+  "excluded_subsystems": [
+    "runtime/neural",
+    "boundary_detector",
+    "rollout_engine",
+    "safety_contracts",
+    "overlay_translator",
+    "known_mappings",
+    "scales",
+    "structural_morphisms",
+    "transfer_ledgers_and_packages",
+    "historical_scenario_runner_and_worlds",
+    "historical_reasoning_family_wiring",
+    "training_and_campaigns",
+    "N3",
+    "N4",
+    "H-Net",
+    "Teacher",
+    "Codex",
+    "local-7B",
+    "AutoEvolution",
+    "historical_experiment_registry"
+  ],
+  "files": [
+    {
+      "destination_path": "runtime/symbolic/schemas.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "da5dc98d1773890467f56744ca247d8b7aaa2b14",
+      "source_file_sha256": "bf6b50b73d9759fa91fbd204c48f53e5dc0e2f8aa66e0626c4b066bc71100d6a",
+      "recovered_file_sha256": "bf6b50b73d9759fa91fbd204c48f53e5dc0e2f8aa66e0626c4b066bc71100d6a",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/__init__.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "1675363530a376ad92ea50cf98d8dfbf652de965",
+      "source_file_sha256": "389614cf2013c7e16b4385a586b77273e17760c9b9be340c6a0ed2e0fc7651fb",
+      "recovered_file_sha256": "389614cf2013c7e16b4385a586b77273e17760c9b9be340c6a0ed2e0fc7651fb",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/conditions.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "64eb160c19f500f7a733b49885bc0cf262ee1063",
+      "source_file_sha256": "39a8585e2882d6d41b4be3d2d3718e0f1c5b266e7aef529f23c58cd2cc2d041e",
+      "recovered_file_sha256": "39a8585e2882d6d41b4be3d2d3718e0f1c5b266e7aef529f23c58cd2cc2d041e",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/contracts.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "a41a15a49b64836af1fae488092cc1bb03622435",
+      "source_file_sha256": "6bd40fe4647ce6bc19d36108084b2f9514a1766eefeff96ffd3016fb5e1f610a",
+      "recovered_file_sha256": "6bd40fe4647ce6bc19d36108084b2f9514a1766eefeff96ffd3016fb5e1f610a",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/compiler.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "a1f82e5387475008f286091d88aa3735d42b1b05",
+      "source_file_sha256": "259c40fa8a122a55abe5e8f9e863b6cfa944c3ce42243e90bbb26e1d7b5dd777",
+      "recovered_file_sha256": "259c40fa8a122a55abe5e8f9e863b6cfa944c3ce42243e90bbb26e1d7b5dd777",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/specs.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "1acc0a21c347430086e8ce6dc17dae60aabb4f57",
+      "source_file_sha256": "26463a6e2f8d8ddde448eb1ae234efb93eabd3ff3622bcd579491ec98728b31e",
+      "recovered_file_sha256": "26463a6e2f8d8ddde448eb1ae234efb93eabd3ff3622bcd579491ec98728b31e",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/causal_learning.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "bebc8714de63323448aee0bec486355571e46e1f",
+      "source_file_sha256": "0f2ec475ffcaaa74384acbcefe8bbba022b6d32605d5522ac7ef786b8401c329",
+      "recovered_file_sha256": "0f2ec475ffcaaa74384acbcefe8bbba022b6d32605d5522ac7ef786b8401c329",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/hypothesis_ledger.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "055273d25f79c1ea1a5d1f7a22fd8aba9bc1d672",
+      "source_file_sha256": "68bba7040f9a615504e89e143a1ee503f94ccf192cfb6ad3915af4fc3049d89f",
+      "recovered_file_sha256": "68bba7040f9a615504e89e143a1ee503f94ccf192cfb6ad3915af4fc3049d89f",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/hypothesis_mapping.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "fb8423598d9e14182024e9bce9234ce51702ad9e",
+      "source_file_sha256": "ef88e79565f6cc65b07301331e26ee94efa51f8cae671b5790ba2c2a0a408d63",
+      "recovered_file_sha256": "ef88e79565f6cc65b07301331e26ee94efa51f8cae671b5790ba2c2a0a408d63",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/provider_protocol.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "b4851946fb3983e5e06d4e8392b6add429042bf7",
+      "source_file_sha256": "e403227e5cdfce7859d13f355d51c6c04a26a3c1d6def90c23e3a7f3f946ef23",
+      "recovered_file_sha256": "e403227e5cdfce7859d13f355d51c6c04a26a3c1d6def90c23e3a7f3f946ef23",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/jtms.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "9f5beea3c9cfe950ae518c2f7fa345b96b7feb53",
+      "source_file_sha256": "c900ddbbd2aee5aaed2305e1a355aa1701e1b628fbcc7e28d33987cd3c4ab1e9",
+      "recovered_file_sha256": "c900ddbbd2aee5aaed2305e1a355aa1701e1b628fbcc7e28d33987cd3c4ab1e9",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/planner.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "e754fa75d55bf88af739b9872f1ad41736999996",
+      "source_file_sha256": "3b3baf359a282fced2e92619ce99db8b97bb4343b854537178d8a7fd8bcfdc0b",
+      "recovered_file_sha256": "3b3baf359a282fced2e92619ce99db8b97bb4343b854537178d8a7fd8bcfdc0b",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/regime_detector.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "9b76773dd7cc93cd0581abe3006a94aefb24026c",
+      "source_file_sha256": "b7b7c9a1ea55e12b12e213141eef84af4e9ed168b8acdc003a3aadd1d1eabf1c",
+      "recovered_file_sha256": "b7b7c9a1ea55e12b12e213141eef84af4e9ed168b8acdc003a3aadd1d1eabf1c",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/self_model.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "71d2dc0c1a9b03011bf5544361e51b6512c758cc",
+      "source_file_sha256": "c9fedea64c55720655ec0a5ec97f4789cf7fe752073e02ab39f48ce4e3945186",
+      "recovered_file_sha256": "c9fedea64c55720655ec0a5ec97f4789cf7fe752073e02ab39f48ce4e3945186",
+      "status": "EXACT",
+      "compatibility_modification": null
+    },
+    {
+      "destination_path": "runtime/symbolic/mci/runtime.py",
+      "source_commit": "2b32e5dd9dacc4358697b8570ce4cab0f15c9cfb",
+      "source_blob_sha": "6ec844ea0e6b143642c21a08b9d3faaf74644871",
+      "source_file_sha256": "956879652bb6323edb78a92accde8e5617057b2cb0c3604077b365829897be82",
+      "recovered_file_sha256": "956879652bb6323edb78a92accde8e5617057b2cb0c3604077b365829897be82",
+      "status": "EXACT",
+      "compatibility_modification": null
+    }
+  ]
+}
