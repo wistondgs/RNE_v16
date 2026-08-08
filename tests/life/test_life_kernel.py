@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from runtime.life import (
+    AutonomyDecision,
     AutonomySupervisor,
     CheckpointManager,
     LIFE_CHECKPOINT_KIND,
@@ -10,6 +11,7 @@ from runtime.life import (
     VitalSignsSnapshot,
 )
 from runtime.storage import StorageConfig, StorageFactory
+from runtime.organism.experience import ExperienceStore
 
 
 def _storage(tmp_path: Path):
@@ -75,6 +77,47 @@ def test_life_kernel_step_persists_checkpoint_and_identity(tmp_path: Path):
     assert restored is not None
     assert restored.organism_state.episode_count == 1
     assert restored.goals
+
+
+def test_nonacting_life_outcome_witness_reenters_wisdom(
+    monkeypatch, tmp_path: Path
+):
+    monkeypatch.setenv("RNFE_EXPERIENCE", "1")
+    storage = _storage(tmp_path)
+    kernel = LifeKernel(
+        config=LifeKernelConfig(
+            run_id="life-nonacting-witness",
+            organism_id="organism-nonacting-witness",
+            scenarios=("thermal_homeostasis",),
+            restore=False,
+            enable_msrc=False,
+        ),
+        storage=storage,
+    )
+    monkeypatch.setattr(
+        kernel.supervisor,
+        "decide",
+        lambda **_: AutonomyDecision(
+            action="sleep",
+            mode="conservative",
+            reason="test_nonacting_witness",
+            scenario="thermal_homeostasis",
+        ),
+    )
+
+    result = kernel.step(external_input=0.05)
+
+    store = ExperienceStore(storage=storage)
+    records = store.recall(organism_id=kernel.organism_id)
+    assert result.decision.action == "sleep"
+    assert len(records) == 1
+    wisdom = store.wisdom(
+        organism_id=kernel.organism_id,
+        situation=records[0]["situation_key"],
+    )
+    assert wisdom.n == 1
+    assert wisdom.witness_verified_n == 1
+    assert records[0]["outcome_witness"]["source_event_type"] == "life.sleep"
 
 
 def test_life_kernel_resurrects_latest_identity(tmp_path: Path):

@@ -73,6 +73,20 @@ class PostgresStorageBackend(StorageBackend):
             conn.commit()
 
     def append_event(self, event: StoredEvent) -> StoredEvent:
+        from ..canonical_outcomes import reject_reserved_canonical_event
+
+        reject_reserved_canonical_event(event.event_type)
+        return self._append_event_unchecked(event)
+
+    def append_canonical_outcome(
+        self, event: StoredEvent, capability: object
+    ) -> StoredEvent:
+        from ..canonical_outcomes import _require_backend_write_capability
+
+        _require_backend_write_capability(capability, event.event_type)
+        return self._append_event_unchecked(event)
+
+    def _append_event_unchecked(self, event: StoredEvent) -> StoredEvent:
         event_id = event.event_id or str(uuid4())
         payload = dict(event.payload or {})
         payload_hash = event.payload_hash or _payload_hash(payload)

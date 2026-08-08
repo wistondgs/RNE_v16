@@ -119,7 +119,41 @@ class HybridStorageBackend(StorageBackend):
         return getattr(second, method)(**kwargs)
 
     def append_event(self, event: StoredEvent) -> StoredEvent:
+        from ..canonical_outcomes import reject_reserved_canonical_event
+
+        reject_reserved_canonical_event(event.event_type)
         return self._dual_write("append_event", event)  # type: ignore[return-value]
+
+    def append_canonical_outcome(
+        self, event: StoredEvent, capability: object
+    ) -> StoredEvent:
+        from ..canonical_outcomes import _require_backend_write_capability
+
+        _require_backend_write_capability(capability, event.event_type)
+        results: list[StoredEvent] = []
+        errors: list[Exception] = []
+        for backend in (self.primary, self.fallback):
+            try:
+                results.append(backend.append_canonical_outcome(event, capability))
+            except Exception as exc:  # pragma: no cover - backend integration
+                errors.append(exc)
+        if self.strict_dual_write and errors:
+            raise RuntimeError(
+                f"Dual-write estricto fallo en append_canonical_outcome: "
+                f"{[str(exc) for exc in errors]}"
+            )
+        if results:
+            if errors:
+                logger.warning(
+                    "dual-write append_canonical_outcome: un store fallo; %r", errors
+                )
+            return results[0]
+        if errors:
+            raise RuntimeError(
+                "Dual-write fallo en append_canonical_outcome: "
+                + "; ".join(str(exc) for exc in errors)
+            )
+        raise RuntimeError("canonical_outcome_persistence_unconfirmed")
 
     def list_events(
         self,

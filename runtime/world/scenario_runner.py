@@ -42,7 +42,11 @@ from runtime.reality.belief_state import BeliefState, build_belief_state, comput
 from runtime.world.compatibility import ScenarioCompatibilityGraph
 from runtime.smg import SMGMin
 from runtime.storage import get_storage
-from runtime.storage.records import utc_now_iso
+from runtime.storage.records import StoredEvent, utc_now_iso
+from runtime.storage.canonical_outcomes import (
+    ACTING_OWNER,
+    _issue_canonical_outcome_authority,
+)
 from runtime.reasoning.families import a12 as a12_family
 from runtime.world.intervention_override import (
     OverrideDecision,
@@ -104,6 +108,11 @@ class ScenarioEpisodeRunner:
             lineage: LineageState compartido para continuidad generacional.
         """
         self.storage = storage or get_storage()
+        # F1A2 composition boundary: this factual world owner receives the opaque
+        # capability; StorageFacade and DynamicLifeChain alone do not.
+        self._outcome_authority = _issue_canonical_outcome_authority(
+            storage=self.storage, owner=ACTING_OWNER
+        )
         self.run_id = run_id or f"run-{uuid4()}"
         self._trajectory_regime_label = DEFAULT_SCENARIO
 
@@ -1076,6 +1085,7 @@ class ScenarioEpisodeRunner:
         )
         episode_payload = {
             "episode_id": episode_id,
+            "organism_id": self._organism_id,
             "timestamp": utc_now_iso(),
             "scenario": self.scenario.config.name,
             "scenario_metadata": scenario_metadata,
@@ -1344,48 +1354,32 @@ class ScenarioEpisodeRunner:
             },
         )
 
-        # E1 — Experiencia: destilar ESTE episodio (éxito o golpe) en el diario del
-        # organismo, con firma de situación y severidad ∝ daño. RNFE_EXPERIENCE off ⇒ skip.
+        # F1A.1: preparar los hechos usados por la experiencia, pero no otorgarles
+        # autoridad hasta que la transición factual quede persistida y hash-encadenada.
+        experience_facts = None
         if self._experience is not None:
-            from runtime.organism.experience import build_experience
-
             cert = certification["certificate"]
             va = episode_result.get("viability_assessment") or {}
             prev_vm = float(getattr(getattr(previous_state, "viability", None), "viability_margin", va.get("viability_margin", 1.0)) or 1.0)
             vm = float(va.get("viability_margin", prev_vm))
-            exp = build_experience(
-                organism_id=self._organism_id,
-                run_id=self.run_id,
-                episode_id=episode_id,
-                scenario=self.scenario.config.name,
-                regime=("alarm" if getattr(observation, "alarm", False) else "calm"),
-                main_variable=self.scenario.config.main_variable,
-                causal_status="",
-                intervention=intervention,
-                viability_margin=vm,
-                ioc=float(getattr(cert, "ioc_proxy", 0.0) or 0.0),
-                risk=float(getattr(cert, "risk_score", 0.0) or 0.0),
-                reward=float(reasoning_reward.get("reward", 0.0) or 0.0),
-                action="act",
-                certified=(getattr(cert, "verdict", None) == "certified"),
-                closure_passed=bool((va.get("is_viable", True))),
-                viability_delta=vm - prev_vm,
-            )
-            self._experience.record(exp)
-            episode_result["experience"] = {
-                "situation_key": exp.situation_key,
-                "severity": exp.severity,
-                "wound": exp.wound,
-                "biased": self._experience_bias,
+            experience_facts = {
+                "organism_id": self._organism_id,
+                "run_id": self.run_id,
+                "episode_id": episode_id,
+                "scenario": self.scenario.config.name,
+                "regime": "alarm" if getattr(observation, "alarm", False) else "calm",
+                "main_variable": self.scenario.config.main_variable,
+                "causal_status": "",
+                "intervention": intervention,
+                "viability_margin": vm,
+                "ioc": float(getattr(cert, "ioc_proxy", 0.0) or 0.0),
+                "risk": float(getattr(cert, "risk_score", 0.0) or 0.0),
+                "reward": float(reasoning_reward.get("reward", 0.0) or 0.0),
+                "action": "act",
+                "certified": getattr(cert, "verdict", None) == "certified",
+                "closure_passed": bool(va.get("is_viable", True)),
+                "viability_delta": vm - prev_vm,
             }
-            if self._experience_bias is not None:
-                self.storage.append_event(
-                    event_type="experience.applied",
-                    run_id=self.run_id,
-                    source="experience",
-                    payload={"episode_id": episode_id, "situation_key": exp.situation_key,
-                             **self._experience_bias},
-                )
 
         cert = certification["certificate"]
         symbiosis_trace = self._neural.finalize_episode(
@@ -1403,11 +1397,6 @@ class ScenarioEpisodeRunner:
         )
         memory_write_refs = tuple(
             [f"smg:{sign_id}" for sign_id in n5_sign_ids]
-            + (
-                [f"experience:{episode_result['experience']['situation_key']}"]
-                if "experience" in episode_result
-                else []
-            )
         )
         next_transition_index = self._dynamic_chain.transition_index + 1
         state_before = self._build_dynamic_state(
@@ -1495,6 +1484,11 @@ class ScenarioEpisodeRunner:
                 "world_state_hash": canonical_hash(updated_world),
                 "relation_kind": relation_kind,
                 "factual_delta": factual_delta,
+                **(
+                    {"experience_facts": experience_facts}
+                    if experience_facts is not None
+                    else {}
+                ),
             },
             counterfactual_evidence={
                 "origin": "C-GWM scenario simulation",
@@ -1567,8 +1561,59 @@ class ScenarioEpisodeRunner:
                 ),
                 "autoevolution": evolution.get("action"),
             },
-            storage=self.storage,
+            outcome_authority=self._outcome_authority,
         )
+        if self._experience is not None and life_transition.status == "committed":
+            from runtime.organism.experience import (
+                build_experience,
+                outcome_witness_from_event,
+            )
+
+            witness = outcome_witness_from_event(
+                StoredEvent(
+                    event_type="organism.life_transition.committed",
+                    run_id=self.run_id,
+                    source="scenario_episode_runner",
+                    payload=life_transition.to_dict(),
+                )
+            )
+            exp = build_experience(
+                organism_id=self._organism_id,
+                run_id=self.run_id,
+                episode_id=episode_id,
+                scenario=str(experience_facts["scenario"]),
+                regime=str(experience_facts["regime"]),
+                main_variable=str(experience_facts["main_variable"]),
+                causal_status=str(experience_facts["causal_status"]),
+                intervention=intervention,
+                viability_margin=float(experience_facts["viability_margin"]),
+                ioc=float(experience_facts["ioc"]),
+                risk=float(experience_facts["risk"]),
+                reward=float(experience_facts["reward"]),
+                action="act",
+                outcome_witness=witness,
+                certified=bool(experience_facts["certified"]),
+                closure_passed=bool(experience_facts["closure_passed"]),
+                viability_delta=float(experience_facts["viability_delta"]),
+            )
+            if self._experience.record(exp):
+                episode_result["experience"] = {
+                    "situation_key": exp.situation_key,
+                    "severity": exp.severity,
+                    "wound": exp.wound,
+                    "biased": self._experience_bias,
+                }
+                if self._experience_bias is not None:
+                    self.storage.append_event(
+                        event_type="experience.applied",
+                        run_id=self.run_id,
+                        source="experience",
+                        payload={
+                            "episode_id": episode_id,
+                            "situation_key": exp.situation_key,
+                            **self._experience_bias,
+                        },
+                    )
         if life_transition.status == "committed":
             symbiosis_trace = self._neural.link_life_transition(
                 episode_id=episode_id,

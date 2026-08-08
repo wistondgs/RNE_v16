@@ -7,6 +7,10 @@ import pytest
 from runtime.organism.dynamic_state import OrganismDynamicState
 from runtime.organism.life_transition import DynamicLifeChain
 from runtime.storage import StorageConfig, StorageFactory
+from runtime.storage.canonical_outcomes import (
+    ACTING_OWNER,
+    _issue_canonical_outcome_authority,
+)
 from runtime.world import ScenarioEpisodeRunner
 
 
@@ -147,7 +151,9 @@ def test_unpersisted_transition_is_incomplete_and_does_not_advance_chain() -> No
         regime_before={},
         regime_after={},
         rollback_refuge_result={},
-        storage=BrokenStorage(),
+        outcome_authority=_issue_canonical_outcome_authority(
+            storage=BrokenStorage(), owner=ACTING_OWNER
+        ),
     )
     assert transition.status == "incomplete"
     assert transition.reason_code == "life_transition_persistence_failed"

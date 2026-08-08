@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from runtime.storage import StorageConfig, StorageFactory
+from runtime.organism.experience import ExperienceStore
 from runtime.world import (
     CognitiveScenario,
     ThermalScenario,
@@ -210,6 +211,36 @@ class TestScenarioEpisodeRunner:
             scales=["experience"],
             limit=20,
         ) == []
+        storage.close()
+
+    def test_real_episode_outcome_witness_reenters_wisdom(
+        self, monkeypatch, tmp_path: Path
+    ):
+        monkeypatch.setenv("RNFE_EXPERIENCE", "1")
+        storage = _storage(tmp_path)
+        runner = ScenarioEpisodeRunner(
+            storage=storage,
+            run_id="run-experience-witness",
+            scenario="thermal_homeostasis",
+        )
+        runner.set_organism_id("organism-experience-witness")
+
+        result = runner.run_episode(external_input=0.05)
+
+        structure = ExperienceStore(storage=storage).recall(
+            organism_id="organism-experience-witness"
+        )
+        assert len(structure) == 1
+        wisdom = ExperienceStore(storage=storage).wisdom(
+            organism_id="organism-experience-witness",
+            situation=structure[0]["situation_key"],
+        )
+        assert result["experience"]["severity"] == structure[0]["severity"]
+        assert wisdom.n == 1
+        assert wisdom.witness_verified_n == 1
+        assert structure[0]["outcome_witness"]["source_event_type"] == (
+            "organism.life_transition.committed"
+        )
         storage.close()
 
     def test_runner_with_resource_scenario(self, tmp_path: Path):

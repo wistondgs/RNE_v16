@@ -30,6 +30,11 @@ class LedgerStore(Protocol):
     def append_event(self, event: StoredEvent) -> StoredEvent:
         ...
 
+    def append_canonical_outcome(
+        self, event: StoredEvent, capability: object
+    ) -> StoredEvent:
+        ...
+
     def list_events(
         self,
         *,

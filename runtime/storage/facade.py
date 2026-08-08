@@ -10,6 +10,10 @@ from uuid import uuid4
 
 from .config import StorageConfig
 from .contract_validation import enforce_event, enforce_record
+from .canonical_outcomes import (
+    _require_backend_write_capability,
+    reject_reserved_canonical_event,
+)
 from .interfaces import StorageBackend
 from .records import (
     ArtifactRecord,
@@ -52,6 +56,7 @@ class StorageFacade:
         legacy_event_id: int | None = None,
         event_id: str | None = None,
     ) -> StoredEvent:
+        reject_reserved_canonical_event(event_type)
         event = StoredEvent(
             event_id=event_id,
             run_id=run_id,
@@ -66,6 +71,14 @@ class StorageFacade:
         # viajan como payload de evento; se validan ANTES de persistir.
         enforce_event(event_type, event.payload, origin="StorageFacade.append_event")
         return self.backend.append_event(event)
+
+    def _append_canonical_outcome(
+        self, event: StoredEvent, capability: object
+    ) -> StoredEvent:
+        """Internal capability channel for factual-owner outcome anchors."""
+
+        _require_backend_write_capability(capability, event.event_type)
+        return self.backend.append_canonical_outcome(event, capability)
 
     def list_events(
         self,
@@ -422,6 +435,8 @@ class StorageFacade:
         memory_id: str | None = None,
         created_at: str | None = None,
     ) -> MemoryRecord:
+        if str(scale).strip().lower() == "experience":
+            raise ValueError("experience_scale_is_reserved")
         record = MemoryRecord(
             memory_id=memory_id or str(uuid4()),
             run_id=run_id,
@@ -445,6 +460,18 @@ class StorageFacade:
             # El día que alguien compute de verdad la no-interferencia, esto pasa a True.
             metadata={**dict(metadata or {}), "no_interference_computed": False},
         )
+        return self.backend.write_memory_record(record)
+
+    def write_canonical_experience_record(self, record: MemoryRecord) -> MemoryRecord:
+        """Persist a pre-validated experience through its reserved channel.
+
+        This separates generic memory writes from the cognitive channel. Epistemic
+        authority is still established and revalidated by ``ExperienceStore``.
+        """
+        if not isinstance(record, MemoryRecord):
+            raise TypeError("canonical_experience_requires_memory_record")
+        if record.scale != "experience":
+            raise ValueError("canonical_experience_scale_required")
         return self.backend.write_memory_record(record)
 
     def retrieve_memory_records(

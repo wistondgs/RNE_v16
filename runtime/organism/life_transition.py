@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from .dynamic_state import OrganismDynamicState, canonical_hash
+
+if TYPE_CHECKING:
+    from runtime.storage.canonical_outcomes import CanonicalOutcomeAuthority
 
 
 LIFE_TRANSITION_SCHEMA_VERSION = "organism-life-transition-v1"
@@ -129,7 +132,7 @@ class DynamicLifeChain:
         regime_before: Mapping[str, Any],
         regime_after: Mapping[str, Any],
         rollback_refuge_result: Mapping[str, Any],
-        storage: Any,
+        outcome_authority: "CanonicalOutcomeAuthority | None",
     ) -> LifeTransition:
         self._validate_states(state_before, state_after)
         index = self.transition_index + 1
@@ -177,13 +180,10 @@ class DynamicLifeChain:
         }
         transition = LifeTransition(**payload, transition_hash=canonical_hash(hash_payload))
         try:
-            persisted_event = storage.append_event(
-                event_type="organism.life_transition.committed",
-                run_id=self.run_id,
-                source="scenario_episode_runner",
-                payload=transition.to_dict(),
-            )
-            if persisted_event is None:
+            if outcome_authority is None:
+                raise RuntimeError("canonical_outcome_authority_unavailable")
+            persisted = outcome_authority.commit_acting_transition(transition)
+            if persisted.event is None:
                 raise RuntimeError("life_transition_persistence_unconfirmed")
         except Exception:
             incomplete_payload = {

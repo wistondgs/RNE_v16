@@ -98,7 +98,7 @@ class Teacher:
         """
         if not teacher_enabled():
             return []
-        experiences = self.experience.recall(organism_id=organism_id, limit=200)
+        experiences = self.experience.verified_recall(organism_id=organism_id, limit=200)
         wounds = [
             e
             for e in experiences

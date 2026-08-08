@@ -24,7 +24,11 @@ from runtime.conjunction.execution import routing_enforced, tier_execution_direc
 from runtime.core.checkpoint_kinds import LIFE_CHECKPOINT_KIND
 from runtime.neural import NeuralRuntimeConfig
 from runtime.storage import StorageFacade, get_storage
-from runtime.storage.records import utc_now_iso
+from runtime.storage.canonical_outcomes import (
+    NONACTING_OWNER,
+    _issue_canonical_outcome_authority,
+)
+from runtime.storage.records import StoredEvent, utc_now_iso
 from runtime.world import ScenarioEpisodeRunner
 
 from .checkpoints import CheckpointManager
@@ -93,6 +97,11 @@ class LifeKernel:
     ):
         self.config = config or LifeKernelConfig()
         self.storage = storage or get_storage()
+        # F1A2 composition boundary: only the factual life owner receives this
+        # process-local capability. Generic storage writers remain non-authoritative.
+        self._outcome_authority = _issue_canonical_outcome_authority(
+            storage=self.storage, owner=NONACTING_OWNER
+        )
         self.persistence = OrganismPersistence(storage=self.storage)
         self.checkpoints = CheckpointManager(storage=self.storage)
         self.vitals_service = VitalSignsService(storage=self.storage)
@@ -433,18 +442,24 @@ class LifeKernel:
         except Exception:
             return "", []
 
-    def _record_nonacting_wound(self, *, decision: AutonomyDecision, vitals: VitalSignsSnapshot) -> None:
+    def _record_nonacting_wound(
+        self,
+        *,
+        decision: AutonomyDecision,
+        vitals: VitalSignsSnapshot,
+        outcome_event: StoredEvent,
+    ) -> None:
         """Graba el golpe de una decisión no-actuante (cuarentena/rollback/sleep) en el diario."""
         if self._experience is None:
             return
-        from runtime.organism.experience import build_experience
+        from runtime.organism.experience import build_experience, outcome_witness_from_event
 
         scenario = self._current_scenario()
         main_var, _ = self._scenario_info(scenario)
         exp = build_experience(
             organism_id=self.organism_id,  # B41: namespace por genoma (recuperable cross-vida)
             run_id=self.run_id,            # procedencia: la corrida que sufrió el golpe
-            episode_id=f"life-{decision.action}-{self.total_steps}",
+            episode_id=str(outcome_event.payload.get("episode_id") or ""),
             scenario=scenario,
             regime="distress" if decision.action in {"quarantine", "rollback"} else "rest",
             main_variable=main_var,
@@ -455,6 +470,7 @@ class LifeKernel:
             risk=vitals.risk_score,
             reward=0.0,
             action=decision.action,
+            outcome_witness=outcome_witness_from_event(outcome_event),
             certified=bool(vitals.certified),
             closure_passed=False,
             viability_delta=0.0,
@@ -691,24 +707,31 @@ class LifeKernel:
             decision=decision,
             reason=f"non_acting_{decision.action}",
         )
-        non_acting_payload: Dict[str, Any] = {
-            "step_index": self.total_steps,
-            "decision": decision.to_dict(),
-            "vital_signs": vitals.to_dict(),
-            "checkpoint_artifact_id": checkpoint.artifact_id,
-            "operational_conjunction": operational.to_dict() if operational else {},
-        }
-        if causal is not None:
-            non_acting_payload["causal_context"] = causal.to_dict()
-        self.storage.append_event(
-            event_type=f"life.{decision.action}",
-            run_id=self.run_id,
-            source="life_kernel",
-            payload=non_acting_payload,
+        nonacting_episode_id = (
+            f"life-{decision.action}-{self.total_steps}-{decision.decision_id}"
         )
+        nonacting_scenario = self._current_scenario()
+        nonacting_main_variable, _ = self._scenario_info(nonacting_scenario)
+        outcome_event = self._outcome_authority.commit_nonacting_decision(
+            decision=decision,
+            vitals=vitals,
+            checkpoint_artifact_id=checkpoint.artifact_id,
+            organism_id=self.organism_id,
+            run_id=self.run_id,
+            episode_id=nonacting_episode_id,
+            step_index=self.total_steps,
+            scenario=nonacting_scenario,
+            main_variable=nonacting_main_variable,
+            operational_conjunction=operational.to_dict() if operational else None,
+            causal_context=causal.to_dict() if causal is not None else None,
+        ).event
         # Experiencia: grabar el golpe de esta decisión no-actuante y —si es una herida
         # profunda— que el maestro (7B) reflexione y destile una lección (E1 + E2, off hot-path).
-        self._record_nonacting_wound(decision=decision, vitals=vitals)
+        self._record_nonacting_wound(
+            decision=decision,
+            vitals=vitals,
+            outcome_event=outcome_event,
+        )
         if decision.action in {"quarantine", "rollback"}:
             self._maybe_reflect()
         return LifeStepResult(
