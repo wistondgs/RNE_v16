@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from runtime.experiments.ea1.budget import EpistemicBudget
+from runtime.experiments.ea1.application import EvidenceApplicationService
 from runtime.experiments.ea1.contracts import Arm, BeliefRevision, ExperimentMemoryRecord, ExperimentProposal, Producer, ScenarioFamily, TheoryState
 from runtime.experiments.ea1.evaluator import EvaluationEvidence, FirstCrossingTracker, SourceAcquisitionEvaluator
 from runtime.experiments.ea1.harness import (
@@ -106,10 +107,14 @@ def test_t8_complete_neutral_route_reaches_post_run_acquisition_evaluation(tmp_p
     resolver = CanonicalOutcomeResolver(db, ledger)
     reference = resolver.resolve(receipt)
     harness.attach_outcome(1, reference, resolver=resolver)
-    successor = TheoryState("t2", 1, .80, .15, .05, "h1", (reference.reference_id,), predecessor_state_id="t1", version=2, logical_time=20)
+    successor = TheoryState("t2", 1, .80, .15, .05, "h1", predecessor_state_id="t1", version=2, logical_time=20)
     revision = BeliefRevision("rev1", 1, "t1", successor, reference.reference_id, "canonical evidence")
-    harness.revise(revision)
-    harness.remember(ExperimentMemoryRecord("mem1", "run", Arm.EXPERIMENTAL, 1, "rev1", {}, theory_state_id="t2", selection_receipt_id=receipt.receipt_id, outcome_reference_id=reference.reference_id))
+    revision = harness.revise(
+        revision,
+        application_service=EvidenceApplicationService(resolver.ledger, resolver),
+    )
+    successor = revision.theory_after
+    harness.remember(ExperimentMemoryRecord("mem1", "run", Arm.EXPERIMENTAL, 1, revision.revision_id, {}, theory_state_id=successor.state_id, selection_receipt_id=receipt.receipt_id, outcome_reference_id=reference.reference_id))
     tracker = FirstCrossingTracker()
     tracker.observe(successor)
     evaluator = SourceAcquisitionEvaluator("run", Arm.EXPERIMENTAL, tracker, scenario_family=ScenarioFamily.S2)
@@ -118,7 +123,7 @@ def test_t8_complete_neutral_route_reaches_post_run_acquisition_evaluation(tmp_p
     harness.persist_acquisition(candidate)
     final = evaluator.finalize(EvaluationEvidence(True, .50, .45, 2, True, .25, True, False, candidate_canonical_signature="sig", ground_truth_canonical_signature="sig", heldout_interventional_mae=.1, heldout_probe_count=8, functional_probe_count=4, ground_truth_opening_ref="opening"))
     harness.persist_acquisition(final)
-    assert [entry.kind for entry in ledger.entries("run")] == ["theory", "proposal_set", "selection", "outcome_reference", "revision", "experiment_memory", "acquisition_candidate", "acquisition_final"]
+    assert [entry.kind for entry in ledger.entries("run")] == ["theory", "proposal_set", "selection", "outcome_reference", "evidence_application_reserved", "revision", "evidence_application_committed", "experiment_memory", "acquisition_candidate", "acquisition_final"]
 
 
 # T13 persistence survives process-local ledger reconstruction and remains idempotent.

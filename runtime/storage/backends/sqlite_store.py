@@ -369,7 +369,12 @@ class SQLiteStorageBackend(StorageBackend):
         if event.source and "source" not in payload:
             payload["source"] = event.source
         with self._lock:
-            self._ledger.log_event(event.event_type, payload, event.timestamp)
+            self._ledger.log_event(
+                event.event_type,
+                payload,
+                event.timestamp,
+                event_id=event.event_id,
+            )
         return event
 
     def list_events(
@@ -392,6 +397,7 @@ class SQLiteStorageBackend(StorageBackend):
                 timestamp=row.get("timestamp") or "",
                 run_id=payload_dict.get("run_id") or payload_dict.get("_run_id"),
                 source=payload_dict.get("source"),
+                event_id=row.get("event_id"),
             )
             if run_id and item.run_id != run_id:
                 continue

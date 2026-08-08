@@ -11,6 +11,7 @@ EVENT_TYPE = "ea1.experimental.event"
 SOURCE = "ea1_neutral_substrate"
 ARTIFACT_ID_KEYS = (
     "receipt_id",
+    "application_id",
     "revision_id",
     "memory_id",
     "reference_id",
@@ -84,6 +85,20 @@ class StorageLedgerBackend:
 
     def append(self, run_id: str, event_id: str, payload: Mapping[str, Any]) -> None:
         self.storage.append_event(event_type=EVENT_TYPE, payload=payload, run_id=run_id, source=SOURCE, event_id=event_id)
+        matches = [
+            event
+            for event in self.storage.list_events(
+                run_id=run_id, event_types=[EVENT_TYPE], limit=10000
+            )
+            if event.event_id == event_id
+        ]
+        persisted_payload = dict(matches[0].payload) if len(matches) == 1 else {}
+        # SQLite's generic event adapter mirrors source into the event payload;
+        # it is transport metadata, not part of the signed EA1 ledger entry.
+        if persisted_payload.get("source") == SOURCE:
+            persisted_payload.pop("source")
+        if len(matches) != 1 or canonical_value(persisted_payload) != canonical_value(payload):
+            raise LedgerIntegrityError("atomic_event_identity_conflict")
 
 
 class ExperimentLedger:

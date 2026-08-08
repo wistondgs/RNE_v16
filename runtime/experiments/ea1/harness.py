@@ -381,6 +381,7 @@ class NeutralExperimentHarness:
             authorization_id=authorization_id,
             organism_id=organism_id,
             episode_id=episode_id,
+            theory_state_id=self._theory[epoch].state_id,
             block_id=self.block_id,
             scenario_family=scenario_family,
             candidate_proposal_ids=tuple(
@@ -414,15 +415,31 @@ class NeutralExperimentHarness:
         self.ledger.append(run_id=self.run_id, arm=self.arm.value, logical_time=epoch * 10 + 3, kind="outcome_reference", artifact=reference)
         self._outcome[epoch], self._phase[epoch] = reference, EpochPhase.OUTCOME
 
-    def revise(self, revision: BeliefRevision) -> None:
+    def revise(
+        self,
+        revision: BeliefRevision,
+        *,
+        application_service: Any | None = None,
+    ) -> BeliefRevision:
         self._require(revision.epoch, EpochPhase.OUTCOME)
         if revision.outcome_reference_id != self._outcome[revision.epoch].reference_id or revision.theory_before_id != self._theory[revision.epoch].state_id:
             raise ValueError("revision_provenance_mismatch")
         before = self._theory[revision.epoch]
         if revision.theory_after.predecessor_state_id != before.state_id or revision.theory_after.version != before.version + 1 or revision.theory_after.logical_time <= before.logical_time:
             raise ValueError("revision_version_chain_invalid")
-        self.ledger.append(run_id=self.run_id, arm=self.arm.value, logical_time=revision.epoch * 10 + 4, kind="revision", artifact=revision)
+        from .application import EvidenceApplicationService
+
+        if not isinstance(application_service, EvidenceApplicationService):
+            raise ValueError("persistent_evidence_application_service_required")
+        result = application_service.apply(
+            self._selection[revision.epoch],
+            self._outcome[revision.epoch],
+            before,
+            revision,
+        )
+        self._theory[revision.epoch] = result.successor
         self._phase[revision.epoch] = EpochPhase.REVISED
+        return result.revision
 
     def remember(self, memory: ExperimentMemoryRecord) -> None:
         self._require(memory.epoch, EpochPhase.REVISED)

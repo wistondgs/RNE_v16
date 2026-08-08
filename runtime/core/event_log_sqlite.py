@@ -55,6 +55,7 @@ class EventLogSQLite:
                 """
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT,
                     event_type TEXT NOT NULL,
                     payload TEXT,
                     timestamp TEXT NOT NULL
@@ -72,6 +73,7 @@ class EventLogSQLite:
                     """
                     CREATE TABLE events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_id TEXT,
                         event_type TEXT NOT NULL,
                         payload TEXT,
                         timestamp TEXT NOT NULL
@@ -88,22 +90,47 @@ class EventLogSQLite:
                 has_event_type = True
                 has_eve_type = False
 
+            cols = self._list_columns(conn, "events")
+            if "event_id" not in cols:
+                conn.execute("ALTER TABLE events ADD COLUMN event_id TEXT")
+            # Older SQLite rows stored the deterministic EA1 event identity inside
+            # the JSON payload. Backfill one canonical occurrence per identity;
+            # legacy duplicates remain readable but cannot claim the unique key.
+            conn.execute(
+                """
+                UPDATE events
+                SET event_id = json_extract(payload, '$.event_id')
+                WHERE id IN (
+                    SELECT MIN(id)
+                    FROM events
+                    WHERE json_extract(payload, '$.event_id') IS NOT NULL
+                    GROUP BY json_extract(payload, '$.event_id')
+                )
+                AND event_id IS NULL
+                """
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id "
+                "ON events(event_id) WHERE event_id IS NOT NULL"
+            )
             self._event_column = "event_type" if has_event_type else "eve_type"
             conn.commit()
 
-    def log_event(self, event_type, payload, timestamp=None):
+    def log_event(self, event_type, payload, timestamp=None, event_id=None):
         ts = timestamp or datetime.utcnow().isoformat()
         with self._lock, configure_sqlite_connection(
             sqlite3.connect(self.db_path)
         ) as conn:
-            conn.execute(
-                f"INSERT INTO events ({self._event_column}, payload, timestamp) VALUES (?, ?, ?)",
-                (event_type, json.dumps(payload), ts),
+            cursor = conn.execute(
+                f"INSERT INTO events (event_id, {self._event_column}, payload, timestamp) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                (event_id, event_type, json.dumps(payload), ts),
             )
             conn.commit()
+            return cursor.rowcount == 1
 
     def get_events(self, limit=200, event_types=None, run_id=None):
-        query = f"SELECT {self._event_column}, payload, timestamp FROM events"
+        query = f"SELECT event_id, {self._event_column}, payload, timestamp FROM events"
         clauses = []
         params = []
         if event_types:
@@ -128,9 +155,10 @@ class EventLogSQLite:
             rows = conn.execute(query, params).fetchall()
         return [
             {
-                "event": row[0],
-                "payload": json.loads(row[1]) if row[1] else None,
-                "timestamp": row[2],
+                "event_id": row[0],
+                "event": row[1],
+                "payload": json.loads(row[2]) if row[2] else None,
+                "timestamp": row[3],
             }
             for row in rows
         ][::-1]

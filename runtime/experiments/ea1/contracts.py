@@ -68,6 +68,11 @@ class CensorReason(str, Enum):
     MISSING_F1A_OUTCOME = "missing_f1a_outcome"
 
 
+class EvidenceApplicationStatus(str, Enum):
+    RESERVED = "reserved"
+    COMMITTED = "committed"
+
+
 @dataclass(frozen=True, slots=True)
 class HypothesisCandidate:
     hypothesis_id: str
@@ -227,6 +232,7 @@ class ExperimentSelectionReceipt:
     authorization_id: str
     organism_id: str
     episode_id: str
+    theory_state_id: str
     block_id: str = "block-unknown"
     scenario_family: ScenarioFamily = ScenarioFamily.S1
     candidate_proposal_ids: tuple[str, ...] = ()
@@ -245,6 +251,7 @@ class ExperimentSelectionReceipt:
                 self.authorization_id,
                 self.organism_id,
                 self.episode_id,
+                self.theory_state_id,
             )
         ):
             raise ContractError("selection_execution_identity_required")
@@ -254,7 +261,7 @@ class ExperimentSelectionReceipt:
         return digest(self._unsigned_payload())
 
     def _unsigned_payload(self) -> dict[str, Any]:
-        return {"receipt_id": self.receipt_id, "run_id": self.run_id, "arm": self.arm, "epoch": self.epoch, "proposal_id": self.proposal_id, "action_id": self.action_id, "selector": self.selector, "random_seed": self.random_seed, "random_draw_index": self.random_draw_index, "budget_before": self.budget_before, "budget_after": self.budget_after, "proposal_set_hash": self.proposal_set_hash, "execution_id": self.execution_id, "authorization_id": self.authorization_id, "organism_id": self.organism_id, "episode_id": self.episode_id, "block_id": self.block_id, "scenario_family": self.scenario_family, "candidate_proposal_ids": self.candidate_proposal_ids, "scores_available": self.scores_available, "logical_time": self.logical_time}
+        return {"receipt_id": self.receipt_id, "run_id": self.run_id, "arm": self.arm, "epoch": self.epoch, "proposal_id": self.proposal_id, "action_id": self.action_id, "selector": self.selector, "random_seed": self.random_seed, "random_draw_index": self.random_draw_index, "budget_before": self.budget_before, "budget_after": self.budget_after, "proposal_set_hash": self.proposal_set_hash, "execution_id": self.execution_id, "authorization_id": self.authorization_id, "organism_id": self.organism_id, "episode_id": self.episode_id, "theory_state_id": self.theory_state_id, "block_id": self.block_id, "scenario_family": self.scenario_family, "candidate_proposal_ids": self.candidate_proposal_ids, "scores_available": self.scores_available, "logical_time": self.logical_time}
 
     def to_payload(self) -> dict[str, Any]:
         return {**self._unsigned_payload(), "tokens_before": self.budget_before.tokens_used, "tokens_consumed": self.budget_after.tokens_used - self.budget_before.tokens_used, "tokens_after": self.budget_after.tokens_used, "tokens_remaining": self.budget_after.max_tokens - self.budget_after.tokens_used, "receipt_hash": self.receipt_hash}
@@ -314,6 +321,74 @@ class BeliefRevision:
 
     def to_payload(self) -> dict[str, Any]:
         return {"revision_id": self.revision_id, "epoch": self.epoch, "theory_before_id": self.theory_before_id, "theory_after": self.theory_after, "outcome_reference_id": self.outcome_reference_id, "rationale": self.rationale, "likelihood_support": self.likelihood_support, "posterior_weights": self.posterior_weights, "unknown_mass": self.theory_after.posterior_unknown, "ordinal_transitions": self.ordinal_transitions, "retracted_hypothesis_ids": self.retracted_hypothesis_ids, "unresolved_hypothesis_ids": self.unresolved_hypothesis_ids, "provenance": self.provenance, "successor_theory_state_id": self.theory_after.state_id}
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceApplicationRecord:
+    application_id: str
+    run_id: str
+    arm: Arm
+    epoch: int
+    selection_receipt_id: str
+    execution_id: str
+    authorization_id: str
+    outcome_reference_id: str
+    witness_id: str
+    prior_theory_state_id: str
+    revision_id: str
+    successor_theory_state_id: str
+    revision_payload_hash: str
+    status: EvidenceApplicationStatus
+    created_logical_position: int
+    committed_logical_position: int | None = None
+
+    def __post_init__(self) -> None:
+        identities = (
+            self.application_id,
+            self.run_id,
+            self.selection_receipt_id,
+            self.execution_id,
+            self.authorization_id,
+            self.outcome_reference_id,
+            self.witness_id,
+            self.prior_theory_state_id,
+            self.revision_id,
+            self.successor_theory_state_id,
+            self.revision_payload_hash,
+        )
+        if (
+            not all(str(value or "").strip() for value in identities)
+            or self.epoch < 0
+            or self.created_logical_position < 0
+            or (
+                self.status is EvidenceApplicationStatus.COMMITTED
+                and self.committed_logical_position is None
+            )
+        ):
+            raise ContractError("invalid_evidence_application_record")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            name: getattr(self, name)
+            for name in (
+                "application_id",
+                "run_id",
+                "arm",
+                "epoch",
+                "selection_receipt_id",
+                "execution_id",
+                "authorization_id",
+                "outcome_reference_id",
+                "witness_id",
+                "prior_theory_state_id",
+                "revision_id",
+                "successor_theory_state_id",
+                "revision_payload_hash",
+                "status",
+                "created_logical_position",
+                "committed_logical_position",
+            )
+        }
 
 
 @dataclass(frozen=True, slots=True)
