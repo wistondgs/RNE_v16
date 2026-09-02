@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 from lab.genesis.contracts.claims import TypedClaim
 from lab.genesis.contracts.receipts import ReceiptStatus, VerifierReceipt
 from lab.genesis.contracts.serialization import canonical_sha256, freeze
+from lab.genesis.verifiers.bindings import canonical_execution_context_hash
 from lab.genesis.verifiers.descriptor import VerifierDescriptor
 from lab.genesis.verifiers.reliability import (
     ReliabilityStatus,
@@ -67,36 +68,6 @@ class ReliabilityCase:
 
     def validate(self) -> bool:
         return self.case_hash == canonical_sha256(self.canonical_payload())
-
-
-def canonical_execution_context_hash(
-    claim_hash: str,
-    candidate_identity_hash: str,
-    context: Mapping[str, Any],
-) -> str:
-    """Seal the execution context without depending on a claim object identity.
-
-    ``claim``, ``claim_hash``, candidate identity metadata, and the advertised
-    context hash are protocol fields.  All remaining context is retained in
-    the hash, which catches a changed plan/snapshot or another hidden setting.
-    """
-
-    protocol_keys = {
-        "claim",
-        "claim_hash",
-        "candidate_identity_hash",
-        "context_hash",
-    }
-    payload = {
-        "claim_hash": claim_hash,
-        "candidate_identity_hash": candidate_identity_hash,
-        **{
-            str(key): value
-            for key, value in context.items()
-            if str(key) not in protocol_keys
-        },
-    }
-    return canonical_sha256(payload)
 
 
 @dataclass(frozen=True, slots=True)

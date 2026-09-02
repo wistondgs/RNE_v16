@@ -16,8 +16,8 @@ from typing import Any, Callable, Mapping
 from lab.genesis.contracts.claims import ClaimType, TypedClaim
 from lab.genesis.contracts.receipts import ReceiptStatus, VerifierReceipt
 from lab.genesis.contracts.serialization import canonical_json_bytes, canonical_sha256
+from lab.genesis.verifiers.bindings import canonical_execution_context_hash
 from lab.genesis.verifiers.descriptor import VerifierImplementationIdentity
-from lab.genesis.verifiers.reliability_campaign import canonical_execution_context_hash
 
 
 class DifferentialVerifier:
