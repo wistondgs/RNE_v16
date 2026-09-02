@@ -1,4 +1,5 @@
 from .descriptor import *
+from .differential import DifferentialVerifier
 from .federation import *
 from .reliability import *
 from .reliability_campaign import (
