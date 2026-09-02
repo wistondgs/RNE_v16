@@ -16,6 +16,7 @@ class SurfaceState(str, Enum):
     CAPTURED = "CAPTURED"
     RESETTABLE = "RESETTABLE"
     IMMUTABLE_EXTERNAL = "IMMUTABLE_EXTERNAL"
+    UNAVAILABLE = "UNAVAILABLE"
     UNKNOWN = "UNKNOWN"
 
 
@@ -53,5 +54,61 @@ class CausalSnapshot:
     def canonical_payload(self) -> dict[str, Any]:
         return {"snapshot_id": self.snapshot_id, "schema_version": self.schema_version, "claim_hash": self.claim_hash, "surfaces": tuple(item.canonical_payload() for item in self.surfaces), "payload_hashes": self.payload_hashes}
 
-    def is_cfi_certifiable(self) -> bool:
-        return all(surface.state is not SurfaceState.UNKNOWN for surface in self.surfaces)
+    def is_cfi_certifiable(self, required_surfaces: tuple[str, ...] | None = None) -> bool:
+        required = set(required_surfaces or REQUIRED_SURFACES)
+        return all(surface.name not in required or surface.state in {SurfaceState.CAPTURED, SurfaceState.RESETTABLE, SurfaceState.IMMUTABLE_EXTERNAL} for surface in self.surfaces)
+
+
+@dataclass(frozen=True, slots=True)
+class CFIPolicy:
+    required_surfaces: tuple[str, ...]
+    confirmatory: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "required_surfaces", tuple(self.required_surfaces))
+        if not set(self.required_surfaces).issubset(REQUIRED_SURFACES):
+            raise ValueError("genesis_cfi_policy_unknown_surface")
+
+    def certifies(self, snapshot: CausalSnapshot) -> bool:
+        if self.confirmatory:
+            code = next(surface for surface in snapshot.surfaces if surface.name == "code")
+            if bool(code.detail.get("dirty")):
+                return False
+        return snapshot.is_cfi_certifiable(self.required_surfaces)
+
+
+class DriftStatus(str, Enum):
+    MATCH = "MATCH"
+    DRIFT = "DRIFT"
+    UNAVAILABLE = "UNAVAILABLE"
+    UNKNOWN = "UNKNOWN"
+
+
+def compose_snapshot(*, snapshot_id: str, claim_hash: str, code: Mapping[str, Any], dependencies: Mapping[str, Any], environment: Mapping[str, Any], rng: Mapping[str, Mapping[str, Any]]) -> CausalSnapshot:
+    payloads = {"code": code, "dependencies": dependencies, "environment": environment, **rng}
+    surfaces = []
+    for name in REQUIRED_SURFACES:
+        payload = payloads.get(name)
+        if payload is None:
+            surfaces.append(CausalSurface(name, SurfaceState.UNKNOWN))
+        elif name.endswith("_rng"):
+            surfaces.append(CausalSurface(name, SurfaceState(payload["state"]), {"digest": payload["digest"]}))
+        else:
+            surfaces.append(CausalSurface(name, SurfaceState.CAPTURED, {"digest": payload.get("snapshot_digest") or payload.get("manifest_digest") or payload.get("environment_digest"), "dirty": payload.get("dirty", False)}))
+    return CausalSnapshot(snapshot_id, "genesis-causal-snapshot-v0", claim_hash, tuple(surfaces), {name: canonical_sha256(value) for name, value in payloads.items()})
+
+
+def compare_snapshot(expected: CausalSnapshot, current: CausalSnapshot) -> dict[str, DriftStatus]:
+    old = {item.name: item for item in expected.surfaces}
+    result: dict[str, DriftStatus] = {}
+    for item in current.surfaces:
+        prior = old[item.name]
+        if item.state is SurfaceState.UNKNOWN or prior.state is SurfaceState.UNKNOWN:
+            result[item.name] = DriftStatus.UNKNOWN
+        elif item.state is SurfaceState.UNAVAILABLE or prior.state is SurfaceState.UNAVAILABLE:
+            result[item.name] = DriftStatus.UNAVAILABLE
+        elif item.canonical_payload() == prior.canonical_payload():
+            result[item.name] = DriftStatus.MATCH
+        else:
+            result[item.name] = DriftStatus.DRIFT
+    return result
