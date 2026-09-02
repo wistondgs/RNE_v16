@@ -1,6 +1,7 @@
 from .descriptor import *
 from .differential import DifferentialVerifier
 from .federation import *
+from .heuristic import HeuristicPolicyKind, HeuristicPolicySpec, HeuristicVerifier
 from .property import PropertyKind, PropertySpec, PropertyVerifier
 from .reliability import *
 from .reliability_campaign import (
