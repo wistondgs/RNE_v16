@@ -149,11 +149,38 @@ class TraceClosureManifest:
                   self.execution_subject_hash, self.evidence_bundle_hash,
                   self.adjudication_receipt_hash, self.ledger_seal_artifact_hash]
         hashes.extend(self.ordered_ledger_event_artifact_hashes)
+        # ``EvidenceEvent.event_hash`` is the canonical payload hash, hence it
+        # is also the CAS identity of the persisted transcript event.
+        hashes.extend(self.ordered_ledger_event_hashes)
         hashes.extend(self.provenance_node_artifact_hashes)
         hashes.extend(self.provenance_edge_artifact_hashes)
         for group in self.artifact_groups:
             hashes.extend(group.artifact_hashes)
         return tuple(sorted(set(hashes)))
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "TraceClosureManifest":
+        """Rehydrate only the sealed, canonical fields stored in CAS."""
+        return cls(
+            schema_version=str(payload["schema_version"]),
+            trace_id=str(payload["trace_id"]),
+            federation_plan_hash=str(payload["federation_plan_hash"]),
+            requirement_hash=str(payload["requirement_hash"]),
+            execution_subject_hash=str(payload["execution_subject_hash"]),
+            evidence_bundle_hash=str(payload["evidence_bundle_hash"]),
+            adjudication_receipt_hash=str(payload["adjudication_receipt_hash"]),
+            artifact_groups=tuple(
+                TraceArtifactGroup(str(item["role"]), tuple(item["artifact_hashes"]))
+                for item in payload["artifact_groups"]
+            ),
+            ordered_ledger_event_artifact_hashes=tuple(payload["ordered_ledger_event_artifact_hashes"]),
+            ordered_ledger_event_hashes=tuple(payload["ordered_ledger_event_hashes"]),
+            ledger_head_hash=payload["ledger_head_hash"],
+            ledger_event_count=int(payload["ledger_event_count"]),
+            ledger_seal_artifact_hash=str(payload["ledger_seal_artifact_hash"]),
+            provenance_node_artifact_hashes=tuple(payload["provenance_node_artifact_hashes"]),
+            provenance_edge_artifact_hashes=tuple(payload["provenance_edge_artifact_hashes"]),
+        )
 
 
 def verify_trace_closure(closure: TraceClosureManifest, *,
