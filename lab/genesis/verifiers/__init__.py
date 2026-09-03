@@ -30,3 +30,8 @@ from .reliability_campaign import (
 from .plan import FederationPlan, RequirementRoutingResult, RoutingStatus, SelectedVerifierBinding
 from .router import (SELECTION_POLICY_HASH, PresentedVerifierStatus, VerifierRouter,
                      validate_federation_plan, validate_presented_verifier_against_binding)
+from .execution import (
+    ExecutionAdmission, ExecutionAdmissionStatus, ExecutionStatus, ExecutionSubjectBinding,
+    PlanBoundExecutionKernel, PlannedExecutionRequest, PlannedExecutionResult,
+    VerifierExecutionRecord, semantic_result_hash, validate_execution_record,
+)
