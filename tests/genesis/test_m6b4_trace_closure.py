@@ -48,6 +48,7 @@ def material():
         )
         ledger.append(event)
         events.append(event)
+        payloads[event.event_hash] = event.canonical_payload()
     seal = LedgerSeal.seal(ledger, TRACE_SCHEMA_VERSION)
     payloads[seal.seal_hash] = seal.canonical_payload()
     groups = (
