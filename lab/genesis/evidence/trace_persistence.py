@@ -275,7 +275,8 @@ def _build_provenance(catalog: _Catalog, trace_id: str) -> tuple[ProvenanceGraph
 def stage_m6_trace(*, router: VerifierRouter, federation_plan: FederationPlan,
                    subject: ExecutionSubjectBinding, records: Iterable[ExecutionRecordMaterial],
                    bundle: RequirementEvidenceBundle,
-                   adjudication: RequirementAdjudicationReceipt) -> _StagedTrace:
+                   adjudication: RequirementAdjudicationReceipt,
+                   historical_artifacts: Mapping[str, Iterable[Any]] | None = None) -> _StagedTrace:
     records = _validate_input(router=router, federation_plan=federation_plan, subject=subject,
                              records=records, bundle=bundle, adjudication=adjudication)
     trace_id = derive_trace_id(
@@ -286,6 +287,9 @@ def stage_m6_trace(*, router: VerifierRouter, federation_plan: FederationPlan,
     catalog = _Catalog()
     _add_historical_catalog(catalog, router=router, federation_plan=federation_plan,
                             subject=subject, records=records, bundle=bundle, adjudication=adjudication)
+    for role, items in (historical_artifacts or {}).items():
+        for item in items:
+            catalog.add(role, item)
     graph, node_hashes, edge_hashes = _build_provenance(catalog, trace_id)
     artifact_order = catalog.order()
     ledger = EvidenceLedger(f"genesis-m6b4:{trace_id}", trace_id)
