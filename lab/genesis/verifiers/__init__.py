@@ -35,3 +35,7 @@ from .execution import (
     PlanBoundExecutionKernel, PlannedExecutionRequest, PlannedExecutionResult,
     VerifierExecutionRecord, semantic_result_hash, validate_execution_record,
 )
+from .evidence import (
+    EvidenceBundleStatus, ExecutionRecordMaterial, RequirementEvidenceBundle,
+    build_requirement_evidence_bundle, validate_requirement_evidence_bundle,
+)
