@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass,field
+from itertools import combinations
 from enum import Enum
 from lab.genesis.contracts.serialization import canonical_sha256
 from .descriptor import *
@@ -32,6 +33,18 @@ class VerifierDependencyGraph:
  @property
  def graph_hash(self):return canonical_sha256({"nodes":sorted(self.nodes),"edges":sorted(self.edges),"complete":self.complete})
  def independence(self,a,b):return IndependenceStatus.DEPENDENT if tuple(sorted((a.descriptor_hash,b.descriptor_hash))) in self.edges else (IndependenceStatus.VERIFIED_INDEPENDENT if self.complete else IndependenceStatus.UNKNOWN)
+def independent_pass_basis(evidence,graph,k):
+ """Canonical non-greedy basis shared by federation adjudication callers."""
+ passes=tuple(sorted((x for x in evidence if x[2]=="PASS"),key=lambda x:x[0].descriptor_hash))
+ if k==0:return ()
+ for group in combinations(passes,k):
+  if all(graph.independence(a[0],b[0]) is IndependenceStatus.VERIFIED_INDEPENDENT for a,b in combinations(group,2)):return group
+ return ()
+def independent_conflict_basis(evidence,graph):
+ valid=[x for x in evidence if x[1].status is IntegrityStatus.PASS]
+ for a,b in combinations(sorted(valid,key=lambda x:x[0].descriptor_hash),2):
+  if {a[2],b[2]}=={"PASS","FAIL"} and graph.independence(a[0],b[0]) is IndependenceStatus.VERIFIED_INDEPENDENT:return (a,b)
+ return ()
 def adjudicate(req,evidence,graph,cfi_pass=True):
  """Evidence=(descriptor, integrity, status). No counting rule or majority exists."""
  if req.requires_cfi_pass and not cfi_pass:return FederationVerdict.INCONCLUSIVE
@@ -41,13 +54,9 @@ def adjudicate(req,evidence,graph,cfi_pass=True):
  if not pool:return FederationVerdict.INCONCLUSIVE
  outcomes={x[2] for x in pool}
  if "FAIL" in outcomes and "PASS" in outcomes:
-  pairs=[graph.independence(a[0],b[0]) for a in pool for b in pool if a is not b]
-  return FederationVerdict.CONFLICT if IndependenceStatus.VERIFIED_INDEPENDENT in pairs else FederationVerdict.INCONCLUSIVE
+  return FederationVerdict.CONFLICT if independent_conflict_basis(pool,graph) else FederationVerdict.INCONCLUSIVE
  if "FAIL" in outcomes:return FederationVerdict.FAIL
  if "UNKNOWN" in outcomes:return FederationVerdict.INCONCLUSIVE
  passes=[x for x in pool if x[2]=="PASS"]
  if len(passes)<req.min_qualifying_passes:return FederationVerdict.INCONCLUSIVE
- independent=1 if passes else 0
- for item in passes[1:]:
-  if all(graph.independence(item[0],prior[0]) is IndependenceStatus.VERIFIED_INDEPENDENT for prior in passes[:passes.index(item)]):independent+=1
- return FederationVerdict.PASS if independent>=req.min_independent_passes else FederationVerdict.INCONCLUSIVE
+ return FederationVerdict.PASS if len(independent_pass_basis(passes,graph,req.min_independent_passes))>=req.min_independent_passes else FederationVerdict.INCONCLUSIVE
