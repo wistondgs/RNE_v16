@@ -16,6 +16,21 @@ from .contracts import (
     validate_promotion_receipt,
     validate_synthesis_receipt,
 )
+from .dsl import (
+    DSLEvaluationError,
+    DSLSpecification,
+    DSLValidationError,
+    ProgramOperator,
+    canonical_expression,
+    evaluate_expression,
+    expression_metrics,
+    validate_program_skill,
+)
+from .benchmark import (
+    AuditAccess, BenchmarkManifest, BenchmarkTaskDescriptor, DatasetSplit, Example,
+    LearnerTrainingView, SealedCapabilityBenchmark, SplitEvaluation, TaskFamily,
+    canonical_benchmark,
+)
 
 __all__ = [
     "AcquisitionCampaignManifest",
@@ -32,4 +47,15 @@ __all__ = [
     "validate_manifest_successor",
     "validate_promotion_receipt",
     "validate_synthesis_receipt",
+    "DSLEvaluationError",
+    "DSLSpecification",
+    "DSLValidationError",
+    "ProgramOperator",
+    "canonical_expression",
+    "evaluate_expression",
+    "expression_metrics",
+    "validate_program_skill",
+    "AuditAccess", "BenchmarkManifest", "BenchmarkTaskDescriptor", "DatasetSplit", "Example",
+    "LearnerTrainingView", "SealedCapabilityBenchmark", "SplitEvaluation", "TaskFamily",
+    "canonical_benchmark",
 ]
