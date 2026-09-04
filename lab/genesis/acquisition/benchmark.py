@@ -24,6 +24,11 @@ class DatasetSplit(str, Enum):
     HIDDEN = "HIDDEN"
     TRANSFER = "TRANSFER"
 
+class CompositionWrapper(str, Enum):
+    ADD_ONE = "ADD_ONE"
+    NEGATE = "NEGATE"
+    ABS = "ABS"
+
 
 @dataclass(frozen=True, slots=True)
 class Example:
@@ -71,9 +76,9 @@ class LearnerTrainingView:
 
 @dataclass(frozen=True, slots=True)
 class SplitEvaluation:
-    task_id: str; split: DatasetSplit; candidate_skill_hash: str; exact_pass: bool; total: int; correct: int; result_hash: str=field(init=False)
+    task_id: str; split: DatasetSplit; candidate_skill_hash: str; exact_pass: bool; total: int; correct: int; evaluation_context: str="DIRECT"; result_hash: str=field(init=False)
     def __post_init__(self)->None: object.__setattr__(self,"split",DatasetSplit(self.split));object.__setattr__(self,"result_hash",canonical_sha256(self.canonical_payload()))
-    def canonical_payload(self)->dict[str,Any]: return {"task_id":self.task_id,"split":self.split.value,"candidate_skill_hash":self.candidate_skill_hash,"exact_pass":self.exact_pass,"total":self.total,"correct":self.correct}
+    def canonical_payload(self)->dict[str,Any]: return {"task_id":self.task_id,"split":self.split.value,"candidate_skill_hash":self.candidate_skill_hash,"exact_pass":self.exact_pass,"total":self.total,"correct":self.correct,"evaluation_context":self.evaluation_context}
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +110,11 @@ class SealedCapabilityBenchmark:
         return AuditAccess(self,task_id,candidate)
     def evaluate_hidden(self,task_id:str,candidate:ProgramSkillArtifact)->SplitEvaluation: return self._evaluate(task_id,DatasetSplit.HIDDEN,candidate)
     def evaluate_transfer(self,task_id:str,candidate:ProgramSkillArtifact)->SplitEvaluation: return self._evaluate(task_id,DatasetSplit.TRANSFER,candidate)
+    def evaluate_compositional(self,task_id:str,candidate:ProgramSkillArtifact,wrapper:CompositionWrapper)->SplitEvaluation:
+        if not validate_program_skill(candidate,self.specification): raise ValueError("genesis_benchmark_candidate_invalid")
+        transform={CompositionWrapper.ADD_ONE:lambda x:x+1,CompositionWrapper.NEGATE:lambda x:-x,CompositionWrapper.ABS:abs}[CompositionWrapper(wrapper)]
+        examples=self._tasks[task_id].datasets[DatasetSplit.TRANSFER];correct=sum(transform(evaluate_expression(candidate.program_ast,x.input_value,self.specification))==transform(x.output_value) for x in examples)
+        return SplitEvaluation(task_id,DatasetSplit.TRANSFER,candidate.skill_hash,correct==len(examples),len(examples),correct,f"COMPOSITION:{CompositionWrapper(wrapper).value}")
     def _evaluate(self,task_id:str,split:DatasetSplit,candidate:ProgramSkillArtifact)->SplitEvaluation:
         if not validate_program_skill(candidate,self.specification): raise ValueError("genesis_benchmark_candidate_invalid")
         examples=self._tasks[task_id].datasets[split];correct=sum(evaluate_expression(candidate.program_ast,x.input_value,self.specification)==x.output_value for x in examples)
