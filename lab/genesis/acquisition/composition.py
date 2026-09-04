@@ -280,7 +280,6 @@ def _validate_confirmatory_inputs(
         or protocol.protocol_commitment_hash != policy.compositional_transfer_protocol_hash
         or campaign.evidence_classification != "CONFIRMATORY_GE_I_EVIDENCE"
         or campaign.gei_acceptance_policy_hash != policy.policy_hash
-        or campaign.confirmatory_battery_manifest_hash != policy.canonical_battery_manifest_hash
         or benchmark.manifest.manifest_hash != policy.canonical_battery_manifest_hash
     ):
         raise ValueError("genesis_compositional_confirmatory_binding_invalid")
@@ -342,6 +341,9 @@ def materialize_compositional_transfer_evidence(
             "m7_compositional_transfer_protocol": (protocol,),
             "m7_compositional_transfer_binding": (binding,),
         }
+        if result.durable_audit is not None:
+            historical_artifacts["m7_durable_audit_claim"] = (result.durable_audit.claim,)
+            historical_artifacts["m7_durable_audit_evaluation"] = (result.durable_audit.evaluation,)
         measurements.append(
             _materialize_federated_execution_evidence(
                 campaign=campaign,

@@ -141,6 +141,32 @@ class DurableAuditResult:
     def audit(self) -> SplitEvaluation:
         return self.evaluation.evaluation
 
+    def canonical_payload(self) -> dict[str, object]:
+        return {
+            "slot": self.slot.canonical_payload(),
+            "claim": self.claim.canonical_payload(),
+            "evaluation": self.evaluation.canonical_payload(),
+        }
+
+    def validate(self) -> bool:
+        return (
+            self.slot.validate()
+            and self.claim.validate()
+            and self.evaluation.validate()
+            and self.claim.slot == self.slot
+            and self.evaluation.claim_hash == self.claim.claim_hash
+            and self.evaluation.candidate_commitment_hash
+            == self.claim.candidate_commitment_hash
+        )
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, object]) -> "DurableAuditResult":
+        return cls(
+            AuditSlot(**dict(payload["slot"])),
+            AuditClaimReceipt.from_payload(dict(payload["claim"])),
+            AuditEvaluationReceipt.from_payload(dict(payload["evaluation"])),
+        )
+
 
 class DurableAuditClaimRegistry:
     """Filesystem-backed atomic write-once claims at evaluator trust boundary.
@@ -220,6 +246,8 @@ class DurableAuditClaimRegistry:
         if claim.candidate_commitment_hash != candidate_commitment_hash:
             raise ValueError("genesis_durable_audit_candidate_conflict")
         if not result_path.exists():
+            if claim.status == "COMPLETED":
+                raise ValueError("genesis_durable_audit_completed_without_result")
             return None
         evaluation = AuditEvaluationReceipt.from_payload(self._read(result_path))
         if (

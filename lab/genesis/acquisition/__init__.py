@@ -90,6 +90,21 @@ from .composition import (
     replay_compositional_transfer_evidence,
     wrapper_implementation_hash,
 )
+from .battery import (
+    ConfirmatoryCampaignRun,
+    ConfirmatoryTaskPlan,
+    GEIBatteryClosure,
+    GEIBatteryStatus,
+    GEICampaignAssessment,
+    GEICampaignAttestation,
+    GEICampaignStatus,
+    GEIConfirmatoryBatteryManifest,
+    GateStatus,
+    build_confirmatory_campaign,
+    close_confirmatory_battery,
+    execute_confirmatory_campaign,
+    predeclare_confirmatory_battery,
+)
 from .replay import (
     M7FederatedReplay,
     replay_m7_capability_arm_evidence,
@@ -145,5 +160,10 @@ __all__ = [
     "confirmatory_compositional_transfer_protocol",
     "materialize_compositional_transfer_evidence",
     "replay_compositional_transfer_evidence", "wrapper_implementation_hash",
+    "ConfirmatoryCampaignRun", "ConfirmatoryTaskPlan", "GEIBatteryClosure",
+    "GEIBatteryStatus", "GEICampaignAssessment", "GEICampaignAttestation",
+    "GEICampaignStatus", "GEIConfirmatoryBatteryManifest", "GateStatus",
+    "build_confirmatory_campaign", "close_confirmatory_battery",
+    "execute_confirmatory_campaign", "predeclare_confirmatory_battery",
     "M7FederatedReplay", "replay_m7_capability_arm_evidence", "replay_m7_federated_evidence",
 ]

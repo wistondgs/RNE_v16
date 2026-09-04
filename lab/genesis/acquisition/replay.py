@@ -16,6 +16,7 @@ from lab.genesis.acquisition.campaign import (
     AcquisitionResult,
     PriorInsufficiencyReceipt,
 )
+from lab.genesis.acquisition.audit import DurableAuditResult
 from lab.genesis.acquisition.contracts import (
     AcquisitionCampaignManifest,
     CandidateCommitment,
@@ -120,6 +121,23 @@ def _restore_material(
     successor = CapabilityManifest.from_payload(
         payload("m7_successor_capability_manifest")
     )
+    durable = None
+    claim_group = next(
+        (item for item in closure.artifact_groups if item.role == "m7_durable_audit_claim"), None
+    )
+    evaluation_group = next(
+        (item for item in closure.artifact_groups if item.role == "m7_durable_audit_evaluation"), None
+    )
+    if claim_group is not None or evaluation_group is not None:
+        if claim_group is None or evaluation_group is None:
+            raise ValueError("genesis_m7_replay_durable_audit_roles_incomplete")
+        durable = DurableAuditResult.from_payload(
+            {
+                "slot": _one_payload(store, closure, "m7_durable_audit_claim")["slot"],
+                "claim": _one_payload(store, closure, "m7_durable_audit_claim"),
+                "evaluation": _one_payload(store, closure, "m7_durable_audit_evaluation"),
+            }
+        )
     result = AcquisitionResult(
         prior,
         SynthesisOutcome(synthesis, candidate, None),
@@ -128,6 +146,7 @@ def _restore_material(
         promotion,
         successor,
         task_binding,
+        durable,
     )
     return campaign, baseline, benchmark, scope.task_id, result, scope, target, task_binding
 

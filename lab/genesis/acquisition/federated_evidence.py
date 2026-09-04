@@ -530,6 +530,19 @@ def _validate_acquisition_chain(
         )
     ):
         raise ValueError("genesis_m7_federated_acquisition_chain_invalid")
+    if campaign.evidence_classification == "CONFIRMATORY_GE_I_EVIDENCE":
+        durable = result.durable_audit
+        if (
+            durable is None
+            or not durable.validate()
+            or durable.audit.result_hash != result.audit.result_hash
+            or durable.claim.slot.policy_hash != campaign.gei_acceptance_policy_hash
+            or durable.claim.slot.campaign_hash != campaign.campaign_hash
+            or durable.claim.slot.task_benchmark_binding_hash != binding.binding_hash
+            or durable.evaluation.candidate_commitment_hash
+            != result.commitment.commitment_hash
+        ):
+            raise ValueError("genesis_m7_federated_durable_audit_invalid")
     expected_prior = PriorInsufficiencyReceipt(
         "genesis-m7-prior-insufficiency-v1",
         campaign.campaign_hash,
@@ -897,6 +910,9 @@ def materialize_promoted_skill_evidence(
         "m7_promotion_receipt": (result.promotion,),
         "m7_successor_capability_manifest": (result.g1_manifest,),
     }
+    if result.durable_audit is not None:
+        historical_artifacts["m7_durable_audit_claim"] = (result.durable_audit.claim,)
+        historical_artifacts["m7_durable_audit_evaluation"] = (result.durable_audit.evaluation,)
     return _materialize_federated_execution_evidence(
         campaign=campaign,
         baseline=baseline,
@@ -971,6 +987,9 @@ def materialize_capability_arm_evidence(
         historical_artifacts["m7_causal_active_program_skill"] = (
             execution_binding.active_skill,
         )
+    if result.durable_audit is not None:
+        historical_artifacts["m7_durable_audit_claim"] = (result.durable_audit.claim,)
+        historical_artifacts["m7_durable_audit_evaluation"] = (result.durable_audit.evaluation,)
     return _materialize_federated_execution_evidence(
         campaign=campaign,
         baseline=baseline,
