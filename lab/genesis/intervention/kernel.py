@@ -16,7 +16,7 @@ class ArmContext:
 class KernelResult:
  root:RootSnapshot;manifest:CausalExperimentManifest;receipts:tuple[ArmExecutionReceipt,...];cfi:CFIReport;summary:CausalEffectSummary;trace:ExecutionTrace;delta_receipts:tuple[AllowedDeltaReceipt,...];isolation_receipts:tuple[ArmIsolationReceipt,...];seals:tuple[DecisionSeal,...];oracles:tuple[OracleReceipt,...];budgets:tuple[BudgetReceipt,...]
 class GenericInterventionKernel:
- def run(self,manifest,root,interventions,budget,adapter,oracle,arm_order=None):
+ def run(self,manifest,root,interventions,budget,adapter,oracle,arm_order=None,runtime=None):
   if root.root_hash!=manifest.root_snapshot_hash:raise ValueError("genesis_manifest_root_mismatch")
   adapter.seal_root(root); specs={x.arm_id:x for x in manifest.arm_specs}; order=tuple(arm_order or specs)
   if set(order)!=set(specs):raise ValueError("genesis_arm_order_invalid")
@@ -25,12 +25,20 @@ class GenericInterventionKernel:
   root_before=adapter.fingerprint(root.state)
   for arm_id in order:
    arm=specs[arm_id]; state=adapter.fork(root,arm_id); pre=adapter.fingerprint(state); spec=by_spec[arm.intervention_spec_hash]
-   # Trusted registry, never user-supplied executable code.
-   if spec.intervention_type=="increment_operator":state["capabilities"]["operator"]="INCREMENT"
-   elif spec.intervention_type=="placebo_marker":state["capabilities"]["placebo_marker"]=True
-   elif spec.intervention_type!="none":raise ValueError("genesis_intervention_unregistered")
+   # Trusted registry, never user-supplied executable code. An optional
+   # declarative runtime still uses this M5 lifecycle for fork, isolation,
+   # sealing, oracle access, budget and CFI; it does not create a second
+   # intervention kernel.
+   if runtime is None:
+    if spec.intervention_type=="increment_operator":state["capabilities"]["operator"]="INCREMENT"
+    elif spec.intervention_type=="placebo_marker":state["capabilities"]["placebo_marker"]=True
+    elif spec.intervention_type!="none":raise ValueError("genesis_intervention_unregistered")
+    inputs=tuple(root.state["inputs"]);op=state["capabilities"]["operator"];outputs=tuple(x+1 if op=="INCREMENT" else x for x in inputs)
+   else:
+    state=runtime.apply(state,spec)
+    inputs=tuple(runtime.inputs(root,state))
+    outputs=tuple(runtime.execute(state,inputs))
    observed=adapter.delta_paths(root,state); undeclared=tuple(x for x in observed if x not in arm.allowed_delta_paths); ds=AllowedDeltaReceipt(arm_id,root.root_hash,pre,arm.allowed_delta_paths,observed,undeclared,"FAIL" if undeclared else "PASS");deltas.append(ds)
-   inputs=tuple(root.state["inputs"]); op=state["capabilities"]["operator"];outputs=tuple(x+1 if op=="INCREMENT" else x for x in inputs)
    seal=DecisionSeal("seal-"+arm_id,"genesis.m5",manifest.experiment_id,arm_id,canonical_sha256(outputs),adapter.fingerprint(state),True,canonical_sha256({"inputs":inputs,"outputs":outputs}));seals.append(seal)
    gate=OracleGate(); oracle_receipt=gate.open(seal,oracle,outputs,inputs);oracles.append(oracle_receipt)
    root_after=adapter.fingerprint(root.state); shared=() if root_after==root_before else ("root_state",); iso=ArmIsolationReceipt(arm_id,root_before,root_after,pre,adapter.fingerprint(state),shared,"PASS" if not shared else "FAIL",canonical_sha256({"arm":arm_id}),"FAIL" if shared else "PASS");isolations.append(iso)
