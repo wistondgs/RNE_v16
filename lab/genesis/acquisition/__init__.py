@@ -34,6 +34,12 @@ from .benchmark import (
 from .synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
 from .campaign import AcquisitionResult, AutonomousAcquisitionCampaign, PriorInsufficiencyReceipt
 from .certification import CapabilityMeasurementReceipt, measure_promoted_capability
+from .confirmation import (
+    CANONICAL_CONFIRMATORY_TASK_IDS,
+    CampaignGate,
+    GEIAcceptancePolicy,
+    confirmatory_policy,
+)
 from .causal import CapabilityCausalArm, CapabilityCausalCertificate, certify_causal_capability
 from .m5_capability_runtime import (
     CapabilityArmRuntime,
@@ -101,6 +107,8 @@ __all__ = [
     "DeterministicProgramSynthesizer", "SynthesisOutcome",
     "AcquisitionResult", "AutonomousAcquisitionCampaign", "PriorInsufficiencyReceipt",
     "CapabilityMeasurementReceipt", "measure_promoted_capability",
+    "CANONICAL_CONFIRMATORY_TASK_IDS", "CampaignGate", "GEIAcceptancePolicy",
+    "confirmatory_policy",
     "CapabilityCausalArm", "CapabilityCausalCertificate", "certify_causal_capability",
     "CapabilityArmRuntime", "CapabilityExecutionBinding", "CapabilityMeasurementOracle",
     "CapabilityOperation", "CapabilityStateAction", "capability_root_state",

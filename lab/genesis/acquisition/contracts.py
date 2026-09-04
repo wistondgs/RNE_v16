@@ -313,6 +313,9 @@ class AcquisitionCampaignManifest:
     timeout_seconds: int
     human_intervention_policy: str
     verifier_obligation_hashes: tuple[str, ...]
+    gei_acceptance_policy_hash: str | None = None
+    confirmatory_battery_manifest_hash: str | None = None
+    evidence_classification: str = "PILOT_CAUSAL_ACQUISITION_EVIDENCE"
     campaign_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -373,6 +376,20 @@ class AcquisitionCampaignManifest:
         if not obligations:
             raise ValueError("genesis_acquisition_verifier_obligations_missing")
         object.__setattr__(self, "verifier_obligation_hashes", obligations)
+        classification = str(self.evidence_classification)
+        if classification not in {
+            "PILOT_CAUSAL_ACQUISITION_EVIDENCE",
+            "CONFIRMATORY_GE_I_EVIDENCE",
+        }:
+            raise ValueError("genesis_acquisition_evidence_classification_invalid")
+        policy_hash = self.gei_acceptance_policy_hash
+        battery_hash = self.confirmatory_battery_manifest_hash
+        if classification == "CONFIRMATORY_GE_I_EVIDENCE":
+            _require_hash(policy_hash or "", "genesis_acquisition_policy_binding_invalid")
+            _require_hash(battery_hash or "", "genesis_acquisition_battery_binding_invalid")
+        elif policy_hash is not None or battery_hash is not None:
+            raise ValueError("genesis_acquisition_pilot_policy_binding_invalid")
+        object.__setattr__(self, "evidence_classification", classification)
         object.__setattr__(self, "campaign_hash", canonical_sha256(self.canonical_payload()))
 
     def canonical_payload(self) -> dict[str, Any]:
@@ -398,6 +415,9 @@ class AcquisitionCampaignManifest:
             "timeout_seconds": self.timeout_seconds,
             "human_intervention_policy": self.human_intervention_policy,
             "verifier_obligation_hashes": self.verifier_obligation_hashes,
+            "gei_acceptance_policy_hash": self.gei_acceptance_policy_hash,
+            "confirmatory_battery_manifest_hash": self.confirmatory_battery_manifest_hash,
+            "evidence_classification": self.evidence_classification,
         }
 
     def validate(self) -> bool:
