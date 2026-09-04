@@ -31,6 +31,7 @@ from .benchmark import (
     LearnerTrainingView, SealedCapabilityBenchmark, SplitEvaluation, TaskFamily,
     canonical_benchmark,
 )
+from .synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
 
 __all__ = [
     "AcquisitionCampaignManifest",
@@ -58,4 +59,5 @@ __all__ = [
     "AuditAccess", "BenchmarkManifest", "BenchmarkTaskDescriptor", "DatasetSplit", "Example",
     "LearnerTrainingView", "SealedCapabilityBenchmark", "SplitEvaluation", "TaskFamily",
     "canonical_benchmark",
+    "DeterministicProgramSynthesizer", "SynthesisOutcome",
 ]

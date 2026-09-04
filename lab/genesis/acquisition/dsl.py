@@ -155,6 +155,14 @@ def evaluate_expression(expression: Mapping[str, Any], value: int, spec: DSLSpec
     if not isinstance(value, int) or isinstance(value, bool) or abs(value) > spec.max_absolute_value:
         raise DSLEvaluationError("genesis_dsl_input_out_of_bounds")
     root = canonical_expression(expression, spec)
+    return _evaluate_canonical_expression(root, value, spec)
+
+
+def _evaluate_canonical_expression(expression: Mapping[str, Any], value: int, spec: DSLSpecification) -> int:
+    """Evaluate an AST already produced by :func:`canonical_expression` once."""
+
+    if not isinstance(value, int) or isinstance(value, bool) or abs(value) > spec.max_absolute_value:
+        raise DSLEvaluationError("genesis_dsl_input_out_of_bounds")
 
     def bounded(result: int) -> int:
         if abs(result) > spec.max_absolute_value:
@@ -180,7 +188,7 @@ def evaluate_expression(expression: Mapping[str, Any], value: int, spec: DSLSpec
             return bounded(args[0] * args[0])
         raise DSLValidationError("genesis_dsl_unknown_operator")
 
-    return run(root)
+    return run(expression)
 
 
 def validate_program_skill(skill: ProgramSkillArtifact, spec: DSLSpecification) -> bool:
