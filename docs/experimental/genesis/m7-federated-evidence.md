@@ -62,6 +62,18 @@ authority, or establish a global claim verdict.
 
 The resulting closure replays M6 semantics from fresh CAS objects and retains
 the M7 campaign, binding, target commitment, scope, candidate, promotion, and
-manifest artifacts as historical roles. M7 semantic replay of those roles,
-restart persistence, causal-arm binding, and GE-I's all-gates conjunction are
-still M7-F2 work. A passing M7-F1 trace alone is not GE-I certification.
+manifest artifacts as historical roles.
+
+M7-F2 additionally persists an evaluator-private
+`SealedBenchmarkReplayWitness`: target ASTs and split examples, each
+revalidated against the benchmark manifest and DSL before use. This is not a
+learner artifact or a learner API; the CAS used for replay must remain within
+the evaluator/persistence trust boundary. It lets a fresh process replay TRAIN
+synthesis, validate the committed candidate's AUDIT result, rebuild the M6
+material, and require the same adjudication receipt.
+
+This distinction is deliberate: a trace with a re-sealed false M7 audit or
+target witness may still be structurally valid M6 history, but it fails M7
+semantic replay. Causal-arm binding, restart persistence across causal arms,
+and GE-I's all-gates conjunction remain later M7 work. A passing M7-F1/F2
+trace alone is not GE-I certification.

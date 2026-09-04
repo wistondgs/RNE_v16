@@ -52,6 +52,9 @@ class BenchmarkTaskDescriptor:
         if set(values)!={item.value for item in DatasetSplit} or len(set(values.values()))!=4 or any(len(v)!=64 for v in values.values()): raise ValueError("genesis_benchmark_split_commitments_invalid")
         object.__setattr__(self,"split_commitments",values);object.__setattr__(self,"descriptor_hash",canonical_sha256(self.canonical_payload()))
     def canonical_payload(self)->dict[str,Any]: return {"task_id":self.task_id,"family":self.family.value,"split_commitments":self.split_commitments}
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "BenchmarkTaskDescriptor":
+        return cls(**dict(payload))
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,16 @@ class BenchmarkManifest:
         if len({x.task_id for x in self.tasks})!=len(self.tasks) or len(self.tasks)<6: raise ValueError("genesis_benchmark_tasks_invalid")
         object.__setattr__(self,"manifest_hash",canonical_sha256(self.canonical_payload()))
     def canonical_payload(self)->dict[str,Any]: return {"schema_version":self.schema_version,"dsl_hash":self.dsl_hash,"generator_implementation_hash":self.generator_implementation_hash,"seed_commitment_hash":self.seed_commitment_hash,"tasks":tuple(x.canonical_payload() for x in self.tasks)}
+    def validate(self) -> bool:
+        try:
+            return BenchmarkManifest.from_payload(self.canonical_payload()).manifest_hash == self.manifest_hash
+        except (TypeError, ValueError):
+            return False
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "BenchmarkManifest":
+        values = dict(payload)
+        values["tasks"] = tuple(BenchmarkTaskDescriptor.from_payload(item) for item in values["tasks"])
+        return cls(**values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +168,9 @@ class SplitEvaluation:
     task_id: str; split: DatasetSplit; candidate_skill_hash: str; exact_pass: bool; total: int; correct: int; evaluation_context: str="DIRECT"; result_hash: str=field(init=False)
     def __post_init__(self)->None: object.__setattr__(self,"split",DatasetSplit(self.split));object.__setattr__(self,"result_hash",canonical_sha256(self.canonical_payload()))
     def canonical_payload(self)->dict[str,Any]: return {"task_id":self.task_id,"split":self.split.value,"candidate_skill_hash":self.candidate_skill_hash,"exact_pass":self.exact_pass,"total":self.total,"correct":self.correct,"evaluation_context":self.evaluation_context}
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SplitEvaluation":
+        return cls(**dict(payload))
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +181,95 @@ class _SealedTask:
         datasets={DatasetSplit(split):tuple(examples) for split,examples in self.datasets.items()}
         if set(datasets)!=set(DatasetSplit): raise ValueError("genesis_benchmark_datasets_invalid")
         object.__setattr__(self,"datasets",MappingProxyType(datasets))
+
+
+@dataclass(frozen=True, slots=True)
+class SealedTaskReplayWitness:
+    """Evaluator-private task material needed for restart-time semantic replay."""
+
+    task_id: str
+    target_ast: Mapping[str, Any]
+    datasets: Mapping[str, tuple[Example, ...]]
+    witness_hash: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not self.task_id:
+            raise ValueError("genesis_benchmark_replay_task_invalid")
+        object.__setattr__(self, "target_ast", freeze(self.target_ast))
+        datasets: dict[str, tuple[Example, ...]] = {}
+        for split, examples in self.datasets.items():
+            split_name = DatasetSplit(split).value
+            values = tuple(
+                example if isinstance(example, Example) else Example(**dict(example))
+                for example in examples
+            )
+            datasets[split_name] = values
+        if set(datasets) != {item.value for item in DatasetSplit}:
+            raise ValueError("genesis_benchmark_replay_splits_invalid")
+        object.__setattr__(self, "datasets", MappingProxyType(datasets))
+        object.__setattr__(self, "witness_hash", canonical_sha256(self.canonical_payload()))
+
+    def canonical_payload(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id,
+            "target_ast": self.target_ast,
+            "datasets": {
+                split: tuple(example.canonical_payload() for example in examples)
+                for split, examples in self.datasets.items()
+            },
+        }
+
+    def validate(self) -> bool:
+        return self.witness_hash == canonical_sha256(self.canonical_payload())
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SealedTaskReplayWitness":
+        values = dict(payload)
+        values["datasets"] = {
+            split: tuple(Example(**item) for item in examples)
+            for split, examples in values["datasets"].items()
+        }
+        return cls(**values)
+
+
+@dataclass(frozen=True, slots=True)
+class SealedBenchmarkReplayWitness:
+    """Private sealed source required to rederive M7 evidence after restart.
+
+    The artifact is for the benchmark evaluator/persistence boundary.  It is
+    deliberately absent from :class:`LearnerTrainingView` and no learner API
+    exposes it.
+    """
+
+    schema_version: str
+    benchmark_manifest_hash: str
+    tasks: tuple[SealedTaskReplayWitness, ...]
+    witness_hash: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not self.schema_version or not is_artifact_hash(self.benchmark_manifest_hash):
+            raise ValueError("genesis_benchmark_replay_identity_invalid")
+        tasks = tuple(sorted(self.tasks, key=lambda item: item.task_id))
+        if not tasks or len({item.task_id for item in tasks}) != len(tasks) or not all(item.validate() for item in tasks):
+            raise ValueError("genesis_benchmark_replay_tasks_invalid")
+        object.__setattr__(self, "tasks", tasks)
+        object.__setattr__(self, "witness_hash", canonical_sha256(self.canonical_payload()))
+
+    def canonical_payload(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "benchmark_manifest_hash": self.benchmark_manifest_hash,
+            "tasks": tuple(item.canonical_payload() for item in self.tasks),
+        }
+
+    def validate(self) -> bool:
+        return self.witness_hash == canonical_sha256(self.canonical_payload())
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "SealedBenchmarkReplayWitness":
+        values = dict(payload)
+        values["tasks"] = tuple(SealedTaskReplayWitness.from_payload(item) for item in values["tasks"])
+        return cls(**values)
 
 
 class AuditAccess:
@@ -209,6 +314,65 @@ class SealedCapabilityBenchmark:
             if signature in signatures:return False
             signatures.add(signature)
         return True
+
+
+def _benchmark_replay_witness(
+    benchmark: SealedCapabilityBenchmark,
+) -> SealedBenchmarkReplayWitness:
+    """Capture private evaluator material; never call this from learner code."""
+
+    if not benchmark.validate():
+        raise ValueError("genesis_benchmark_replay_source_invalid")
+    return SealedBenchmarkReplayWitness(
+        "genesis-m7-sealed-benchmark-replay-witness-v1",
+        benchmark.manifest.manifest_hash,
+        tuple(
+            SealedTaskReplayWitness(
+                task.descriptor.task_id,
+                task.target_ast,
+                {
+                    split.value: examples
+                    for split, examples in task.datasets.items()
+                },
+            )
+            for task in benchmark._tasks.values()
+        ),
+    )
+
+
+def _restore_benchmark_replay_witness(
+    *,
+    specification: DSLSpecification,
+    manifest: BenchmarkManifest,
+    witness: SealedBenchmarkReplayWitness,
+) -> SealedCapabilityBenchmark:
+    """Recreate a fresh evaluator benchmark and rederive every split seal."""
+
+    if (
+        not specification.validate()
+        or not manifest.validate()
+        or not witness.validate()
+        or manifest.dsl_hash != specification.dsl_hash
+        or witness.benchmark_manifest_hash != manifest.manifest_hash
+        or {item.task_id for item in witness.tasks} != {item.task_id for item in manifest.tasks}
+    ):
+        raise ValueError("genesis_benchmark_replay_binding_invalid")
+    descriptors = {item.task_id: item for item in manifest.tasks}
+    tasks = tuple(
+        _SealedTask(
+            descriptors[item.task_id],
+            item.target_ast,
+            {
+                DatasetSplit(split): examples
+                for split, examples in item.datasets.items()
+            },
+        )
+        for item in witness.tasks
+    )
+    restored = SealedCapabilityBenchmark(specification, tasks, manifest)
+    if not restored.validate():
+        raise ValueError("genesis_benchmark_replay_semantics_invalid")
+    return restored
 
 
 def _node(op:str,*args:Mapping[str,Any],value:int|None=None)->dict[str,Any]:

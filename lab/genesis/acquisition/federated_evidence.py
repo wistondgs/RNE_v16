@@ -16,6 +16,7 @@ from lab.genesis.acquisition.benchmark import (
     DatasetSplit,
     SealedCapabilityBenchmark,
     TaskBenchmarkBinding,
+    _benchmark_replay_witness,
     validate_task_benchmark_binding,
 )
 from lab.genesis.acquisition.campaign import (
@@ -775,6 +776,7 @@ def materialize_promoted_skill_evidence(
         "m7_acquisition_campaign": (campaign,),
         "m7_baseline_capability_manifest": (baseline,),
         "m7_benchmark_manifest": (benchmark.manifest,),
+        "m7_sealed_benchmark_replay_witness": (_benchmark_replay_witness(benchmark),),
         "m7_dsl_specification": (benchmark.specification,),
         "m7_task_benchmark_binding": (task_binding,),
         "m7_reference_target_commitment": (target,),

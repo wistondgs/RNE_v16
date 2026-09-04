@@ -107,6 +107,7 @@ def test_promoted_hidden_skill_is_materialized_by_real_m6_pipeline(tmp_path) -> 
     assert replay.admitted
     assert {
         "m7_task_benchmark_binding",
+        "m7_sealed_benchmark_replay_witness",
         "m7_reference_target_commitment",
         "m7_measurement_scope",
         "m7_program_skill",

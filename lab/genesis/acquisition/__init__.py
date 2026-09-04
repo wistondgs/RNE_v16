@@ -41,6 +41,7 @@ from .federated_evidence import (
     ReferenceTargetCommitment,
     materialize_promoted_skill_evidence,
 )
+from .replay import M7FederatedReplay, replay_m7_federated_evidence
 
 __all__ = [
     "AcquisitionCampaignManifest",
@@ -74,4 +75,5 @@ __all__ = [
     "CapabilityCausalArm", "CapabilityCausalCertificate", "certify_causal_capability",
     "FederatedMeasurementScope", "M7FederatedEvidence", "ReferenceTargetCommitment",
     "materialize_promoted_skill_evidence",
+    "M7FederatedReplay", "replay_m7_federated_evidence",
 ]
