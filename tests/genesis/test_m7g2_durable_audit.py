@@ -7,8 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from lab.genesis.acquisition.audit import DurableAuditClaimRegistry
-from lab.genesis.acquisition.benchmark import TaskBenchmarkBinding, canonical_benchmark
+from lab.genesis.acquisition.audit import AuditClaimReceipt, AuditSlot, DurableAuditClaimRegistry
+from lab.genesis.acquisition.benchmark import DatasetSplit, TaskBenchmarkBinding, canonical_benchmark
 from lab.genesis.acquisition.campaign import AutonomousAcquisitionCampaign
 from lab.genesis.acquisition.confirmation import confirmatory_policy
 from lab.genesis.acquisition.contracts import (
@@ -139,4 +139,22 @@ def test_confirmatory_campaign_requires_durable_registry(tmp_path) -> None:
             campaign=campaign, specification=benchmark.specification, benchmark=benchmark,
             g0_manifest=baseline, task_id="affine-0", g1_manifest_id="m7g2-run-g1",
             task_benchmark_binding=binding,
+        )
+
+
+def test_completed_claim_without_a_sealed_evaluation_is_rejected(tmp_path) -> None:
+    policy, campaign, binding, _benchmark, _candidate, commitment = material()
+    registry = DurableAuditClaimRegistry(tmp_path, policy=policy)
+    slot = AuditSlot(
+        policy.policy_hash, campaign.campaign_hash, binding.binding_hash,
+        binding.split_commitment_hashes[DatasetSplit.AUDIT.value],
+    )
+    completed = AuditClaimReceipt(
+        "genesis-m7-durable-audit-claim-v1", slot, commitment.commitment_hash, "COMPLETED"
+    )
+    assert registry._write_once(registry._path(slot, "claim"), completed.canonical_payload())
+    with pytest.raises(ValueError, match="completed_without_result"):
+        registry.evaluate(
+            campaign=campaign, task_binding=binding, commitment=commitment,
+            evaluate_once=lambda: (_ for _ in ()).throw(AssertionError("must_not_evaluate")),
         )

@@ -742,6 +742,14 @@ class GEIBatteryStatus(str, Enum):
     NOT_PROVEN = "GE_I_BATTERY_NOT_PROVEN"
 
 
+class M7Status(str, Enum):
+    """Claim boundary for this unit; it deliberately says nothing about GE-R/M."""
+
+    CLOSED = "CLOSED"
+    NOT_READY = "NOT_READY"
+    FAIL = "FAIL"
+
+
 def _aggregate_battery(assessments: tuple[GEICampaignAssessment, ...]) -> GEIBatteryStatus:
     statuses = tuple(item.status for item in assessments)
     if all(item is GEICampaignStatus.SUPPORTED for item in statuses):
@@ -801,6 +809,14 @@ class GEIBatteryClosure:
             "aggregate_status": self.status.value,
             "reason_codes": self.reason_codes,
         }
+
+    @property
+    def m7_status(self) -> M7Status:
+        if self.status is GEIBatteryStatus.SUPPORTED:
+            return M7Status.CLOSED
+        if self.status is GEIBatteryStatus.FAIL:
+            return M7Status.FAIL
+        return M7Status.NOT_READY
 
     def validate(self, store: ContentAddressedArtifactStore | None = None) -> bool:
         try:

@@ -6,7 +6,10 @@ import pytest
 
 from lab.genesis.acquisition.battery import (
     GEIBatteryStatus,
+    GEICampaignAssessment,
     GEICampaignStatus,
+    GateStatus,
+    M7Status,
     build_confirmatory_campaign,
     close_confirmatory_battery,
     execute_confirmatory_campaign,
@@ -18,6 +21,7 @@ from lab.genesis.acquisition.composition import (
 )
 from lab.genesis.acquisition.confirmation import (
     CANONICAL_CONFIRMATORY_TASK_IDS,
+    CampaignGate,
     confirmatory_policy,
 )
 from lab.genesis.acquisition.benchmark import canonical_benchmark
@@ -77,6 +81,16 @@ def test_closure_rejects_a_missing_or_substituted_campaign_attestation(tmp_path)
         close_confirmatory_battery(policy=policy, battery=battery, runs=(run,))
 
 
+def test_campaign_assessment_rejects_a_resealed_supported_status_with_missing_gate() -> None:
+    gates = {item.value: GateStatus.PASS for item in CampaignGate}
+    gates[CampaignGate.COMPOSITIONAL_TRANSFER.value] = GateStatus.NOT_PROVEN
+    with pytest.raises(ValueError, match="status_not_derived"):
+        GEICampaignAssessment(
+            h("attestation"), h("policy"), h("battery"), "affine-0", h("campaign"),
+            gates, GEICampaignStatus.SUPPORTED,
+        )
+
+
 def test_execute_complete_predeclared_confirmatory_battery_and_close(tmp_path) -> None:
     policy, protocol, benchmark, battery = predeclared()
     store = ContentAddressedArtifactStore(tmp_path / "cas")
@@ -95,4 +109,5 @@ def test_execute_complete_predeclared_confirmatory_battery_and_close(tmp_path) -
         if item.attestation.task_binding.task_id == "abs_affine-1"
     ) is GEICampaignStatus.NOT_PROVEN
     assert closure.status is GEIBatteryStatus.NOT_PROVEN
+    assert closure.m7_status is M7Status.NOT_READY
     assert closure.validate()
