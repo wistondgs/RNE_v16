@@ -28,8 +28,10 @@ from lab.genesis.acquisition.dsl import DSLSpecification
 from lab.genesis.acquisition.federated_evidence import (
     FederatedMeasurementScope,
     ReferenceTargetCommitment,
+    materialize_capability_arm_evidence,
     materialize_promoted_skill_evidence,
 )
+from lab.genesis.acquisition.m5_capability_runtime import CapabilityExecutionBinding
 from lab.genesis.acquisition.synthesis import SynthesisOutcome
 from lab.genesis.evidence.artifacts import ContentAddressedArtifactStore
 from lab.genesis.evidence.trace_closure import TraceClosureManifest
@@ -180,6 +182,80 @@ def replay_m7_federated_evidence(
         return M7FederatedReplay(
             False,
             ("genesis_m7_replay_historical_material_invalid",),
+            trace_closure_hash,
+        )
+    return M7FederatedReplay(True, (), trace_closure_hash)
+
+
+def replay_m7_capability_arm_evidence(
+    store: ContentAddressedArtifactStore,
+    trace_closure_hash: str,
+) -> M7FederatedReplay:
+    """Re-derive an M6 closure for one M7-E2 executable causal arm.
+
+    Generic M6 replay establishes the sealed trace's structural consistency.
+    This second step restores the M7 acquisition sources and the declared
+    executable arm state, then reruns the same M6 materializer.  In
+    particular, a no-capability baseline is not reconstructed as a fictitious
+    zero-valued program skill.
+    """
+
+    m6 = replay_m6_trace(store, trace_closure_hash)
+    if not m6.admitted:
+        return M7FederatedReplay(
+            False,
+            tuple(f"m6:{reason}" for reason in m6.reasons),
+            trace_closure_hash,
+        )
+    try:
+        closure = TraceClosureManifest.from_payload(store.get(trace_closure_hash))
+        campaign, baseline, benchmark, task_id, result, scope, target, task_binding = _restore_material(
+            store, closure
+        )
+        manifest = CapabilityManifest.from_payload(
+            _one_payload(store, closure, "m7_causal_execution_manifest")
+        )
+        active_group = next(
+            (item for item in closure.artifact_groups if item.role == "m7_causal_active_program_skill"),
+            None,
+        )
+        if active_group is None:
+            active = None
+        else:
+            active = ProgramSkillArtifact.from_payload(
+                _one_payload(store, closure, "m7_causal_active_program_skill")
+            )
+        execution = CapabilityExecutionBinding.from_payload(
+            _one_payload(store, closure, "m7_causal_execution_binding"),
+            manifest=manifest,
+            active_skill=active,
+        )
+        rebuilt = materialize_capability_arm_evidence(
+            campaign=campaign,
+            baseline=baseline,
+            benchmark=benchmark,
+            task_id=task_id,
+            result=result,
+            split=scope.split,
+            execution_binding=execution,
+        )
+        if (
+            rebuilt.scope.scope_hash != scope.scope_hash
+            or rebuilt.target_commitment.commitment_hash != target.commitment_hash
+            or rebuilt.task_binding.binding_hash != task_binding.binding_hash
+            or rebuilt.scope.candidate_skill_hash != execution.execution_identity_hash
+            or m6.adjudication is None
+            or rebuilt.adjudication.receipt_hash != m6.adjudication.receipt_hash
+        ):
+            return M7FederatedReplay(
+                False,
+                ("genesis_m7_causal_arm_replay_derivation_mismatch",),
+                trace_closure_hash,
+            )
+    except (KeyError, TypeError, ValueError):
+        return M7FederatedReplay(
+            False,
+            ("genesis_m7_causal_arm_replay_historical_material_invalid",),
             trace_closure_hash,
         )
     return M7FederatedReplay(True, (), trace_closure_hash)

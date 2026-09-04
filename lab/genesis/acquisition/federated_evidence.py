@@ -34,6 +34,7 @@ from lab.genesis.acquisition.contracts import (
     validate_synthesis_receipt,
 )
 from lab.genesis.acquisition.dsl import evaluate_expression, validate_program_skill
+from lab.genesis.acquisition.m5_capability_runtime import CapabilityExecutionBinding
 from lab.genesis.acquisition.synthesis import DeterministicProgramSynthesizer
 from lab.genesis.contracts.claims import ChangeClass, ClaimType, TypedClaim
 from lab.genesis.contracts.serialization import canonical_sha256, freeze
@@ -312,7 +313,7 @@ def _scope_for(
     *,
     benchmark: SealedCapabilityBenchmark,
     binding: TaskBenchmarkBinding,
-    candidate: ProgramSkillArtifact,
+    candidate_identity_hash: str,
     target: ReferenceTargetCommitment,
     split: DatasetSplit,
 ) -> FederatedMeasurementScope:
@@ -326,7 +327,7 @@ def _scope_for(
         task_id=binding.task_id,
         split=split,
         split_commitment_hash=binding.split_commitment_hashes[split.value],
-        candidate_skill_hash=candidate.skill_hash,
+        candidate_skill_hash=candidate_identity_hash,
         reference_target_commitment_hash=target.commitment_hash,
         domain=domain,
     )
@@ -337,7 +338,7 @@ def _validate_scope(
     *,
     benchmark: SealedCapabilityBenchmark,
     binding: TaskBenchmarkBinding,
-    candidate: ProgramSkillArtifact,
+    candidate_identity_hash: str,
     target: ReferenceTargetCommitment,
 ) -> bool:
     descriptor = _task_descriptor(benchmark, scope.task_id)
@@ -347,7 +348,7 @@ def _validate_scope(
         or scope.benchmark_manifest_hash != benchmark.manifest.manifest_hash
         or scope.task_benchmark_binding_hash != binding.binding_hash
         or scope.task_id != binding.task_id
-        or scope.candidate_skill_hash != candidate.skill_hash
+        or scope.candidate_skill_hash != candidate_identity_hash
         or scope.reference_target_commitment_hash != target.commitment_hash
         or scope.split_commitment_hash != descriptor.split_commitments[scope.split.value]
     ):
@@ -544,38 +545,39 @@ def _validate_acquisition_chain(
     return binding, candidate
 
 
-def materialize_promoted_skill_evidence(
+def _materialize_federated_execution_evidence(
     *,
     campaign: AcquisitionCampaignManifest,
     baseline: CapabilityManifest,
     benchmark: SealedCapabilityBenchmark,
     task_id: str,
-    result: AcquisitionResult,
     split: DatasetSplit,
+    task_binding: TaskBenchmarkBinding,
+    candidate_identity_hash: str,
+    candidate_callable: Any,
+    snapshot_hash: str,
+    historical_artifacts: Mapping[str, tuple[Any, ...]],
 ) -> M7FederatedEvidence:
-    """Create an M6 trace-ready exact observation for a promoted M7 skill.
+    """Route one fixed executable through the one real M6 pipeline.
 
-    Only sealed HIDDEN or TRANSFER data may become a certifiable scope.  TRAIN
-    and AUDIT remain acquisition controls and are deliberately rejected here.
+    The caller must already have authenticated its source state.  This helper
+    is intentionally blind to whether the executable is a promoted skill, a
+    placebo, or the declared no-capability baseline: M6 receives only a
+    candidate identity and a finite differential callable.  M7 retains the
+    semantic distinction in its historical material and replay layer.
     """
 
     split = DatasetSplit(split)
     if split not in _CERTIFIABLE_SPLITS:
         raise ValueError("genesis_m7_federated_split_not_certifiable")
-    task_binding, candidate = _validate_acquisition_chain(
-        campaign=campaign,
-        baseline=baseline,
-        benchmark=benchmark,
-        task_id=task_id,
-        result=result,
-    )
+    _require_hash(candidate_identity_hash, "genesis_m7_federated_candidate_identity_invalid")
     target = _trusted_target_commitment(benchmark, task_id)
     if not _validate_target_commitment(target, benchmark):
         raise ValueError("genesis_m7_federated_target_invalid")
     scope = _scope_for(
         benchmark=benchmark,
         binding=task_binding,
-        candidate=candidate,
+        candidate_identity_hash=candidate_identity_hash,
         target=target,
         split=split,
     )
@@ -583,7 +585,7 @@ def materialize_promoted_skill_evidence(
         scope,
         benchmark=benchmark,
         binding=task_binding,
-        candidate=candidate,
+        candidate_identity_hash=candidate_identity_hash,
         target=target,
     ):
         raise ValueError("genesis_m7_federated_scope_invalid")
@@ -606,9 +608,6 @@ def materialize_promoted_skill_evidence(
 
     def trusted_reference(value: int) -> int:
         return evaluate_expression(task.target_ast, value, benchmark.specification)
-
-    def candidate_callable(value: int) -> int:
-        return evaluate_expression(candidate.program_ast, value, benchmark.specification)
 
     reliability_campaign, profile = _reliability_material(
         claim=claim,
@@ -712,16 +711,14 @@ def materialize_promoted_skill_evidence(
     selected_binding = federation_plan.selected_bindings[0]
     execution_context = _context(
         claim,
-        candidate.skill_hash,
+        candidate_identity_hash,
         target.commitment_hash,
         plan_hash=federation_plan.plan_hash,
-        snapshot_hash=canonical_sha256(
-            {"m7_scope_hash": scope.scope_hash, "promotion_hash": result.promotion.promotion_hash}
-        ),
+        snapshot_hash=snapshot_hash,
     )
     subject = ExecutionSubjectBinding(
         claim.claim_hash,
-        candidate.skill_hash,
+        candidate_identity_hash,
         canonical_sha256(claim.domain),
         execution_context["context_hash"],
     )
@@ -772,23 +769,13 @@ def materialize_promoted_skill_evidence(
         subject=subject,
         records=(material,),
     )
-    historical_artifacts = {
-        "m7_acquisition_campaign": (campaign,),
-        "m7_baseline_capability_manifest": (baseline,),
-        "m7_benchmark_manifest": (benchmark.manifest,),
-        "m7_sealed_benchmark_replay_witness": (_benchmark_replay_witness(benchmark),),
-        "m7_dsl_specification": (benchmark.specification,),
-        "m7_task_benchmark_binding": (task_binding,),
-        "m7_reference_target_commitment": (target,),
-        "m7_measurement_scope": (scope,),
-        "m7_prior_insufficiency_receipt": (result.prior,),
-        "m7_synthesis_receipt": (result.synthesis.receipt,),
-        "m7_program_skill": (candidate,),
-        "m7_candidate_commitment": (result.commitment,),
-        "m7_audit_evaluation": (result.audit,),
-        "m7_promotion_receipt": (result.promotion,),
-        "m7_successor_capability_manifest": (result.g1_manifest,),
-    }
+    final_historical_artifacts = _merge_artifacts(
+        historical_artifacts,
+        {
+            "m7_reference_target_commitment": (target,),
+            "m7_measurement_scope": (scope,),
+        },
+    )
     return M7FederatedEvidence(
         scope,
         task_binding,
@@ -807,5 +794,135 @@ def materialize_promoted_skill_evidence(
         material,
         bundle,
         adjudication,
-        historical_artifacts,
+        final_historical_artifacts,
+    )
+
+
+def materialize_promoted_skill_evidence(
+    *,
+    campaign: AcquisitionCampaignManifest,
+    baseline: CapabilityManifest,
+    benchmark: SealedCapabilityBenchmark,
+    task_id: str,
+    result: AcquisitionResult,
+    split: DatasetSplit,
+) -> M7FederatedEvidence:
+    """Create an M6 trace-ready exact observation for the promoted M7 skill.
+
+    Only sealed HIDDEN or TRANSFER data may become a certifiable scope.  TRAIN
+    and AUDIT remain acquisition controls and are deliberately rejected here.
+    """
+
+    task_binding, candidate = _validate_acquisition_chain(
+        campaign=campaign,
+        baseline=baseline,
+        benchmark=benchmark,
+        task_id=task_id,
+        result=result,
+    )
+    historical_artifacts = {
+        "m7_acquisition_campaign": (campaign,),
+        "m7_baseline_capability_manifest": (baseline,),
+        "m7_benchmark_manifest": (benchmark.manifest,),
+        "m7_sealed_benchmark_replay_witness": (_benchmark_replay_witness(benchmark),),
+        "m7_dsl_specification": (benchmark.specification,),
+        "m7_task_benchmark_binding": (task_binding,),
+        "m7_prior_insufficiency_receipt": (result.prior,),
+        "m7_synthesis_receipt": (result.synthesis.receipt,),
+        "m7_program_skill": (candidate,),
+        "m7_candidate_commitment": (result.commitment,),
+        "m7_audit_evaluation": (result.audit,),
+        "m7_promotion_receipt": (result.promotion,),
+        "m7_successor_capability_manifest": (result.g1_manifest,),
+    }
+    return _materialize_federated_execution_evidence(
+        campaign=campaign,
+        baseline=baseline,
+        benchmark=benchmark,
+        task_id=task_id,
+        split=split,
+        task_binding=task_binding,
+        candidate_identity_hash=candidate.skill_hash,
+        candidate_callable=lambda value: evaluate_expression(
+            candidate.program_ast, value, benchmark.specification
+        ),
+        snapshot_hash=canonical_sha256(
+            {"m7_scope": "promoted", "promotion_hash": result.promotion.promotion_hash}
+        ),
+        historical_artifacts=historical_artifacts,
+    )
+
+
+def materialize_capability_arm_evidence(
+    *,
+    campaign: AcquisitionCampaignManifest,
+    baseline: CapabilityManifest,
+    benchmark: SealedCapabilityBenchmark,
+    task_id: str,
+    result: AcquisitionResult,
+    split: DatasetSplit,
+    execution_binding: CapabilityExecutionBinding,
+) -> M7FederatedEvidence:
+    """Close a declared M5 capability arm through M6 without inventing a verifier.
+
+    This is intentionally narrower than a generic arbitrary-callable API.  An
+    arm can execute only its committed DSL program or the explicit
+    ``NO_CAPABILITY`` baseline, and its M6 subject identity is re-derived from
+    that M5 executable state.  The promoted acquisition chain is retained as
+    historical source material even for control and ablation arms; it is not
+    re-used as the candidate implementation for those arms.
+    """
+
+    task_binding, promoted = _validate_acquisition_chain(
+        campaign=campaign,
+        baseline=baseline,
+        benchmark=benchmark,
+        task_id=task_id,
+        result=result,
+    )
+    if (
+        not execution_binding.validate()
+        or (
+            execution_binding.active_skill is not None
+            and not validate_program_skill(execution_binding.active_skill, benchmark.specification)
+        )
+    ):
+        raise ValueError("genesis_m7_causal_execution_binding_invalid")
+    historical_artifacts: dict[str, tuple[Any, ...]] = {
+        "m7_acquisition_campaign": (campaign,),
+        "m7_baseline_capability_manifest": (baseline,),
+        "m7_benchmark_manifest": (benchmark.manifest,),
+        "m7_sealed_benchmark_replay_witness": (_benchmark_replay_witness(benchmark),),
+        "m7_dsl_specification": (benchmark.specification,),
+        "m7_task_benchmark_binding": (task_binding,),
+        "m7_prior_insufficiency_receipt": (result.prior,),
+        "m7_synthesis_receipt": (result.synthesis.receipt,),
+        "m7_program_skill": (promoted,),
+        "m7_candidate_commitment": (result.commitment,),
+        "m7_audit_evaluation": (result.audit,),
+        "m7_promotion_receipt": (result.promotion,),
+        "m7_successor_capability_manifest": (result.g1_manifest,),
+        "m7_causal_execution_binding": (execution_binding,),
+        "m7_causal_execution_manifest": (execution_binding.manifest,),
+    }
+    if execution_binding.active_skill is not None:
+        historical_artifacts["m7_causal_active_program_skill"] = (
+            execution_binding.active_skill,
+        )
+    return _materialize_federated_execution_evidence(
+        campaign=campaign,
+        baseline=baseline,
+        benchmark=benchmark,
+        task_id=task_id,
+        split=split,
+        task_binding=task_binding,
+        candidate_identity_hash=execution_binding.execution_identity_hash,
+        candidate_callable=lambda value: execution_binding.evaluate(value, benchmark.specification),
+        snapshot_hash=canonical_sha256(
+            {
+                "m7_causal_execution_binding": execution_binding.execution_identity_hash,
+                "promoted_skill_hash": promoted.skill_hash,
+            }
+        ),
+        historical_artifacts=historical_artifacts,
     )

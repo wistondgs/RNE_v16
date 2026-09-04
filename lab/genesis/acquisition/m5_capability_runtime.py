@@ -111,6 +111,116 @@ class CapabilityStateAction:
         except (TypeError, ValueError):
             return False
 
+    @classmethod
+    def from_payload(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        manifests_by_hash: Mapping[str, CapabilityManifest],
+    ) -> "CapabilityStateAction":
+        values = dict(payload)
+        pre = manifests_by_hash.get(values.pop("pre_manifest_hash"))
+        post = manifests_by_hash.get(values.pop("post_manifest_hash"))
+        values.pop("pre_skill_hashes", None)
+        values.pop("post_skill_hashes", None)
+        if pre is None or post is None:
+            raise ValueError("genesis_capability_action_manifest_unavailable")
+        return cls(pre_manifest=pre, post_manifest=post, **values)
+
+@dataclass(frozen=True, slots=True)
+class CapabilityExecutionBinding:
+    """Bind a M6 candidate identity to the exact executable M5 arm state.
+
+    A no-capability arm has an explicit identity rather than masquerading as a
+    program skill.  This avoids the subtle but serious error of certifying a
+    synthetic ``zero`` skill as though it had been installed in G0.
+    """
+
+    schema_version: str
+    arm_id: str
+    root_instance_id: str
+    root_snapshot_hash: str
+    manifest: CapabilityManifest
+    active_skill: ProgramSkillArtifact | None
+    execution_identity_hash: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        if (
+            not self.schema_version
+            or not self.arm_id
+            or not self.root_instance_id
+            or len(self.root_snapshot_hash) != 64
+            or not self.manifest.validate()
+        ):
+            raise ValueError("genesis_capability_execution_binding_invalid")
+        if self.active_skill is None:
+            if self.manifest.skill_hashes:
+                raise ValueError("genesis_capability_execution_binding_missing_active_skill")
+        elif (
+            not self.active_skill.validate()
+            or self.active_skill.skill_hash not in self.manifest.skill_hashes
+            or self.manifest.skill_hashes != (self.active_skill.skill_hash,)
+        ):
+            raise ValueError("genesis_capability_execution_binding_skill_invalid")
+        object.__setattr__(self, "execution_identity_hash", canonical_sha256(self.canonical_payload()))
+
+    @property
+    def active_skill_hash(self) -> str | None:
+        return None if self.active_skill is None else self.active_skill.skill_hash
+
+    def canonical_payload(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "arm_id": self.arm_id,
+            "root_instance_id": self.root_instance_id,
+            "root_snapshot_hash": self.root_snapshot_hash,
+            "manifest_hash": self.manifest.manifest_hash,
+            "manifest_skill_hashes": self.manifest.skill_hashes,
+            "active_skill_hash": self.active_skill_hash,
+            "execution_mode": "DSL_SKILL" if self.active_skill is not None else "NO_CAPABILITY",
+        }
+
+    def validate(self) -> bool:
+        try:
+            return CapabilityExecutionBinding(
+                self.schema_version,
+                self.arm_id,
+                self.root_instance_id,
+                self.root_snapshot_hash,
+                self.manifest,
+                self.active_skill,
+            ).execution_identity_hash == self.execution_identity_hash
+        except (TypeError, ValueError):
+            return False
+
+    @classmethod
+    def from_payload(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        manifest: CapabilityManifest,
+        active_skill: ProgramSkillArtifact | None,
+    ) -> "CapabilityExecutionBinding":
+        values = dict(payload)
+        values.pop("manifest_hash", None)
+        values.pop("manifest_skill_hashes", None)
+        values.pop("active_skill_hash", None)
+        values.pop("execution_mode", None)
+        return cls(
+            manifest=manifest,
+            active_skill=active_skill,
+            **values,
+        )
+
+    def evaluate(self, value: int, specification: DSLSpecification) -> int:
+        if not self.validate() or not specification.validate():
+            raise ValueError("genesis_capability_execution_binding_invalid")
+        if self.active_skill is None:
+            return 0
+        if not validate_program_skill(self.active_skill, specification):
+            raise ValueError("genesis_capability_execution_binding_dsl_invalid")
+        return evaluate_expression(self.active_skill.program_ast, value, specification)
+
 
 def capability_root_state(
     *,

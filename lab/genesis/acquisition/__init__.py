@@ -35,13 +35,42 @@ from .synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
 from .campaign import AcquisitionResult, AutonomousAcquisitionCampaign, PriorInsufficiencyReceipt
 from .certification import CapabilityMeasurementReceipt, measure_promoted_capability
 from .causal import CapabilityCausalArm, CapabilityCausalCertificate, certify_causal_capability
+from .m5_capability_runtime import (
+    CapabilityArmRuntime,
+    CapabilityExecutionBinding,
+    CapabilityMeasurementOracle,
+    CapabilityOperation,
+    CapabilityStateAction,
+    capability_root_state,
+)
+from .causal_experiments import (
+    CausalArmClosure,
+    CausalAttributionStatus,
+    CausalCapabilityAttribution,
+    CausalExperiment,
+    FreshBaselineReceipt,
+    PlaceboCommitment,
+    materialize_causal_capability_attribution,
+)
+from .causal_replay import (
+    CausalEvidenceManifest,
+    CausalReplayPlan,
+    M7CausalReplay,
+    PersistedCausalEvidence,
+    persist_causal_capability_attribution,
+    replay_causal_capability_attribution,
+)
 from .federated_evidence import (
     FederatedMeasurementScope,
     M7FederatedEvidence,
     ReferenceTargetCommitment,
     materialize_promoted_skill_evidence,
 )
-from .replay import M7FederatedReplay, replay_m7_federated_evidence
+from .replay import (
+    M7FederatedReplay,
+    replay_m7_capability_arm_evidence,
+    replay_m7_federated_evidence,
+)
 
 __all__ = [
     "AcquisitionCampaignManifest",
@@ -73,7 +102,15 @@ __all__ = [
     "AcquisitionResult", "AutonomousAcquisitionCampaign", "PriorInsufficiencyReceipt",
     "CapabilityMeasurementReceipt", "measure_promoted_capability",
     "CapabilityCausalArm", "CapabilityCausalCertificate", "certify_causal_capability",
+    "CapabilityArmRuntime", "CapabilityExecutionBinding", "CapabilityMeasurementOracle",
+    "CapabilityOperation", "CapabilityStateAction", "capability_root_state",
+    "CausalArmClosure", "CausalAttributionStatus", "CausalCapabilityAttribution",
+    "CausalExperiment", "FreshBaselineReceipt", "PlaceboCommitment",
+    "materialize_causal_capability_attribution",
+    "CausalEvidenceManifest", "CausalReplayPlan", "M7CausalReplay",
+    "PersistedCausalEvidence", "persist_causal_capability_attribution",
+    "replay_causal_capability_attribution",
     "FederatedMeasurementScope", "M7FederatedEvidence", "ReferenceTargetCommitment",
     "materialize_promoted_skill_evidence",
-    "M7FederatedReplay", "replay_m7_federated_evidence",
+    "M7FederatedReplay", "replay_m7_capability_arm_evidence", "replay_m7_federated_evidence",
 ]
