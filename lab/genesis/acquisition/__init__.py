@@ -32,6 +32,7 @@ from .benchmark import (
     canonical_benchmark,
 )
 from .synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
+from .campaign import AcquisitionResult, AutonomousAcquisitionCampaign, PriorInsufficiencyReceipt
 
 __all__ = [
     "AcquisitionCampaignManifest",
@@ -60,4 +61,5 @@ __all__ = [
     "LearnerTrainingView", "SealedCapabilityBenchmark", "SplitEvaluation", "TaskFamily",
     "canonical_benchmark",
     "DeterministicProgramSynthesizer", "SynthesisOutcome",
+    "AcquisitionResult", "AutonomousAcquisitionCampaign", "PriorInsufficiencyReceipt",
 ]
