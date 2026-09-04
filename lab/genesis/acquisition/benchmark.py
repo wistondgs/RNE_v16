@@ -7,9 +7,13 @@ import random
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from lab.genesis.acquisition.contracts import ProgramSkillArtifact
+from lab.genesis.acquisition.contracts import (
+    AcquisitionCampaignManifest,
+    ProgramSkillArtifact,
+)
 from lab.genesis.acquisition.dsl import DSLSpecification, evaluate_expression, validate_program_skill
 from lab.genesis.contracts.serialization import canonical_sha256, freeze
+from lab.genesis.evidence.artifacts import is_artifact_hash
 
 
 class TaskFamily(str, Enum):
@@ -63,6 +67,78 @@ class BenchmarkManifest:
         if len({x.task_id for x in self.tasks})!=len(self.tasks) or len(self.tasks)<6: raise ValueError("genesis_benchmark_tasks_invalid")
         object.__setattr__(self,"manifest_hash",canonical_sha256(self.canonical_payload()))
     def canonical_payload(self)->dict[str,Any]: return {"schema_version":self.schema_version,"dsl_hash":self.dsl_hash,"generator_implementation_hash":self.generator_implementation_hash,"seed_commitment_hash":self.seed_commitment_hash,"tasks":tuple(x.canonical_payload() for x in self.tasks)}
+
+
+@dataclass(frozen=True, slots=True)
+class TaskBenchmarkBinding:
+    """Bind one predeclared M7 campaign to one sealed benchmark task.
+
+    ``AcquisitionCampaignManifest`` carries one commitment per split.  A
+    campaign becomes certifiable for a concrete task only when those four
+    commitments are re-derived from the corresponding task descriptor.  The
+    binding contains no examples or target program, so it does not widen the
+    learner-facing interface.
+    """
+
+    schema_version: str
+    campaign_hash: str
+    benchmark_manifest_hash: str
+    task_id: str
+    split_commitment_hashes: Mapping[str, str]
+    binding_hash: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        values = freeze({str(key): str(value) for key, value in self.split_commitment_hashes.items()})
+        if (
+            not self.schema_version
+            or not self.task_id
+            or set(values) != {item.value for item in DatasetSplit}
+            or len(set(values.values())) != len(DatasetSplit)
+            or any(not is_artifact_hash(value) for value in values.values())
+        ):
+            raise ValueError("genesis_task_benchmark_binding_invalid")
+        object.__setattr__(self, "split_commitment_hashes", values)
+        object.__setattr__(self, "binding_hash", canonical_sha256(self.canonical_payload()))
+
+    def canonical_payload(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "campaign_hash": self.campaign_hash,
+            "benchmark_manifest_hash": self.benchmark_manifest_hash,
+            "task_id": self.task_id,
+            "split_commitment_hashes": self.split_commitment_hashes,
+        }
+
+    def validate(self) -> bool:
+        return self.binding_hash == canonical_sha256(self.canonical_payload())
+
+
+def validate_task_benchmark_binding(
+    binding: TaskBenchmarkBinding,
+    *,
+    campaign: AcquisitionCampaignManifest,
+    benchmark: "SealedCapabilityBenchmark",
+) -> bool:
+    """Re-derive the task/split identity from immutable source artifacts."""
+
+    if not (
+        binding.validate()
+        and campaign.validate()
+        and benchmark.validate()
+        and binding.campaign_hash == campaign.campaign_hash
+        and binding.benchmark_manifest_hash == benchmark.manifest.manifest_hash
+    ):
+        return False
+    descriptor = next(
+        (item for item in benchmark.manifest.tasks if item.task_id == binding.task_id),
+        None,
+    )
+    return (
+        descriptor is not None
+        and dict(binding.split_commitment_hashes) == dict(descriptor.split_commitments)
+        and dict(binding.split_commitment_hashes)
+        == dict(campaign.dataset_commitments)
+    )
 
 
 @dataclass(frozen=True, slots=True)

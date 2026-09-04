@@ -29,12 +29,18 @@ from .dsl import (
 from .benchmark import (
     AuditAccess, BenchmarkManifest, BenchmarkTaskDescriptor, DatasetSplit, Example,
     LearnerTrainingView, SealedCapabilityBenchmark, SplitEvaluation, TaskFamily,
-    canonical_benchmark,
+    TaskBenchmarkBinding, canonical_benchmark, validate_task_benchmark_binding,
 )
 from .synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
 from .campaign import AcquisitionResult, AutonomousAcquisitionCampaign, PriorInsufficiencyReceipt
 from .certification import CapabilityMeasurementReceipt, measure_promoted_capability
 from .causal import CapabilityCausalArm, CapabilityCausalCertificate, certify_causal_capability
+from .federated_evidence import (
+    FederatedMeasurementScope,
+    M7FederatedEvidence,
+    ReferenceTargetCommitment,
+    materialize_promoted_skill_evidence,
+)
 
 __all__ = [
     "AcquisitionCampaignManifest",
@@ -61,9 +67,11 @@ __all__ = [
     "validate_program_skill",
     "AuditAccess", "BenchmarkManifest", "BenchmarkTaskDescriptor", "DatasetSplit", "Example",
     "LearnerTrainingView", "SealedCapabilityBenchmark", "SplitEvaluation", "TaskFamily",
-    "canonical_benchmark",
+    "TaskBenchmarkBinding", "canonical_benchmark", "validate_task_benchmark_binding",
     "DeterministicProgramSynthesizer", "SynthesisOutcome",
     "AcquisitionResult", "AutonomousAcquisitionCampaign", "PriorInsufficiencyReceipt",
     "CapabilityMeasurementReceipt", "measure_promoted_capability",
     "CapabilityCausalArm", "CapabilityCausalCertificate", "certify_causal_capability",
+    "FederatedMeasurementScope", "M7FederatedEvidence", "ReferenceTargetCommitment",
+    "materialize_promoted_skill_evidence",
 ]

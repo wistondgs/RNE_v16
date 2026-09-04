@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from lab.genesis.acquisition.benchmark import SealedCapabilityBenchmark, SplitEvaluation
+from lab.genesis.acquisition.benchmark import (
+    SealedCapabilityBenchmark,
+    SplitEvaluation,
+    TaskBenchmarkBinding,
+    validate_task_benchmark_binding,
+)
 from lab.genesis.acquisition.contracts import (AcquisitionCampaignManifest, CandidateCommitment, CapabilityManifest, ProgramSkillArtifact, PromotionReceipt, PromotionStatus, derive_successor_manifest, validate_candidate_commitment, validate_promotion_receipt)
 from lab.genesis.acquisition.dsl import DSLSpecification
 from lab.genesis.acquisition.synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
@@ -20,13 +25,19 @@ class PriorInsufficiencyReceipt:
 
 @dataclass(frozen=True, slots=True)
 class AcquisitionResult:
-    prior:PriorInsufficiencyReceipt; synthesis:SynthesisOutcome; commitment:CandidateCommitment|None; audit:SplitEvaluation|None; promotion:PromotionReceipt; g1_manifest:CapabilityManifest|None
+    prior:PriorInsufficiencyReceipt; synthesis:SynthesisOutcome; commitment:CandidateCommitment|None; audit:SplitEvaluation|None; promotion:PromotionReceipt; g1_manifest:CapabilityManifest|None; task_benchmark_binding:TaskBenchmarkBinding|None=None
 
 class AutonomousAcquisitionCampaign:
     """A no-input pipeline: TRAIN -> candidate commitment -> AUDIT once -> G1."""
     def __init__(self,synthesizer:DeterministicProgramSynthesizer|None=None)->None:self._synthesizer=synthesizer or DeterministicProgramSynthesizer()
-    def run(self,*,campaign:AcquisitionCampaignManifest,specification:DSLSpecification,benchmark:SealedCapabilityBenchmark,g0_manifest:CapabilityManifest,task_id:str,g1_manifest_id:str)->AcquisitionResult:
+    def run(self,*,campaign:AcquisitionCampaignManifest,specification:DSLSpecification,benchmark:SealedCapabilityBenchmark,g0_manifest:CapabilityManifest,task_id:str,g1_manifest_id:str,task_benchmark_binding:TaskBenchmarkBinding|None=None)->AcquisitionResult:
         if campaign.g0_capability_manifest_hash!=g0_manifest.manifest_hash or campaign.dsl_hash!=specification.dsl_hash or benchmark.manifest.dsl_hash!=specification.dsl_hash: raise ValueError("genesis_acquisition_binding_invalid")
+        if task_benchmark_binding is not None and (
+            task_benchmark_binding.task_id != task_id
+            or not validate_task_benchmark_binding(
+                task_benchmark_binding, campaign=campaign, benchmark=benchmark
+            )
+        ): raise ValueError("genesis_acquisition_task_benchmark_binding_invalid")
         view=benchmark.learner_view(task_id)
         # G0 has no installed program for this target. The evaluator records the
         # concrete zero-answer behavior rather than inferring absence from a hash.
@@ -34,7 +45,7 @@ class AutonomousAcquisitionCampaign:
         synthesis=self._synthesizer.synthesize(campaign=campaign,specification=specification,training=view)
         if synthesis.selected_skill is None:
             promotion=PromotionReceipt("genesis-m7-promotion-receipt-v1",campaign.campaign_hash,canonical_sha256({"no_candidate":synthesis.receipt.synthesis_hash}),synthesis.receipt.synthesis_hash,canonical_sha256({"no_skill":campaign.campaign_hash}),canonical_sha256({"audit":"not_opened"}),g0_manifest.manifest_hash,None,PromotionStatus.REJECTED,("no_exact_train_candidate",))
-            return AcquisitionResult(prior,synthesis,None,None,promotion,None)
+            return AcquisitionResult(prior,synthesis,None,None,promotion,None,task_benchmark_binding)
         skill=synthesis.selected_skill
         commitment=CandidateCommitment("genesis-m7-candidate-commitment-v1",skill.skill_hash,campaign.campaign_hash,synthesis.receipt.training_evidence_hash or "",synthesis.receipt.synthesis_hash,synthesis.receipt.ranking_evidence_hash or "")
         if not validate_candidate_commitment(commitment,campaign,synthesis.receipt,skill): raise ValueError("genesis_acquisition_commitment_invalid")
@@ -45,4 +56,4 @@ class AutonomousAcquisitionCampaign:
         else:
             g1=None;promotion=PromotionReceipt("genesis-m7-promotion-receipt-v1",campaign.campaign_hash,commitment.commitment_hash,synthesis.receipt.synthesis_hash,skill.skill_hash,audit.result_hash,g0_manifest.manifest_hash,None,PromotionStatus.REJECTED,("audit_not_exact",))
         if not validate_promotion_receipt(promotion,campaign=campaign,commitment=commitment,synthesis=synthesis.receipt,candidate=skill,g0_manifest=g0_manifest,g1_manifest=g1): raise ValueError("genesis_acquisition_promotion_invalid")
-        return AcquisitionResult(prior,synthesis,commitment,audit,promotion,g1)
+        return AcquisitionResult(prior,synthesis,commitment,audit,promotion,g1,task_benchmark_binding)
