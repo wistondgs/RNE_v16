@@ -34,6 +34,7 @@ from .benchmark import (
 from .synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
 from .campaign import AcquisitionResult, AutonomousAcquisitionCampaign, PriorInsufficiencyReceipt
 from .certification import CapabilityMeasurementReceipt, measure_promoted_capability
+from .causal import CapabilityCausalArm, CapabilityCausalCertificate, certify_causal_capability
 
 __all__ = [
     "AcquisitionCampaignManifest",
@@ -64,4 +65,5 @@ __all__ = [
     "DeterministicProgramSynthesizer", "SynthesisOutcome",
     "AcquisitionResult", "AutonomousAcquisitionCampaign", "PriorInsufficiencyReceipt",
     "CapabilityMeasurementReceipt", "measure_promoted_capability",
+    "CapabilityCausalArm", "CapabilityCausalCertificate", "certify_causal_capability",
 ]
