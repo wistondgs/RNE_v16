@@ -78,6 +78,18 @@ from .federated_evidence import (
     ReferenceTargetCommitment,
     materialize_promoted_skill_evidence,
 )
+from .composition import (
+    CompositionalTransferBinding,
+    CompositionalTransferEvidence,
+    CompositionalTransferProtocol,
+    CompositionalWrapper,
+    M7CompositionalReplay,
+    compositional_transfer_protocol_commitment,
+    confirmatory_compositional_transfer_protocol,
+    materialize_compositional_transfer_evidence,
+    replay_compositional_transfer_evidence,
+    wrapper_implementation_hash,
+)
 from .replay import (
     M7FederatedReplay,
     replay_m7_capability_arm_evidence,
@@ -127,5 +139,11 @@ __all__ = [
     "replay_causal_capability_attribution",
     "FederatedMeasurementScope", "M7FederatedEvidence", "ReferenceTargetCommitment",
     "materialize_promoted_skill_evidence",
+    "CompositionalTransferBinding", "CompositionalTransferEvidence",
+    "CompositionalTransferProtocol", "CompositionalWrapper", "M7CompositionalReplay",
+    "compositional_transfer_protocol_commitment",
+    "confirmatory_compositional_transfer_protocol",
+    "materialize_compositional_transfer_evidence",
+    "replay_compositional_transfer_evidence", "wrapper_implementation_hash",
     "M7FederatedReplay", "replay_m7_capability_arm_evidence", "replay_m7_federated_evidence",
 ]

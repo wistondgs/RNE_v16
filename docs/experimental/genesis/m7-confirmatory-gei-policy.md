@@ -8,4 +8,6 @@ is explicitly out of scope for this single-capability-run battery.
 
 Earlier `affine-0` evidence remains `PILOT_CAUSAL_ACQUISITION_EVIDENCE` and
 is excluded from the confirmatory result. Confirmatory campaigns bind both the
-policy and the later battery execution manifest.
+policy and the predeclared canonical benchmark manifest. This avoids a
+policy/execution hash cycle while still fixing the complete six-task universe
+before any confirmatory campaign begins.

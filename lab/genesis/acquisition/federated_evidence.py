@@ -168,6 +168,8 @@ class FederatedMeasurementScope:
     candidate_skill_hash: str
     reference_target_commitment_hash: str
     domain: Mapping[str, Any]
+    measurement_mode: str = "DIRECT"
+    measurement_binding_hash: str | None = None
     scope_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -184,6 +186,17 @@ class FederatedMeasurementScope:
             _require_hash(value, "genesis_m7_measurement_scope_hash_invalid")
         object.__setattr__(self, "domain", freeze(self.domain))
         _integer_domain(self.domain)
+        mode = str(self.measurement_mode)
+        if mode not in {"DIRECT", "COMPOSITIONAL"}:
+            raise ValueError("genesis_m7_measurement_scope_mode_invalid")
+        if mode == "DIRECT" and self.measurement_binding_hash is not None:
+            raise ValueError("genesis_m7_measurement_scope_direct_binding_invalid")
+        if mode == "COMPOSITIONAL":
+            _require_hash(
+                self.measurement_binding_hash or "",
+                "genesis_m7_measurement_scope_composition_binding_invalid",
+            )
+        object.__setattr__(self, "measurement_mode", mode)
         object.__setattr__(self, "scope_hash", canonical_sha256(self.canonical_payload()))
 
     def canonical_payload(self) -> dict[str, Any]:
@@ -197,6 +210,8 @@ class FederatedMeasurementScope:
             "candidate_skill_hash": self.candidate_skill_hash,
             "reference_target_commitment_hash": self.reference_target_commitment_hash,
             "domain": self.domain,
+            "measurement_mode": self.measurement_mode,
+            "measurement_binding_hash": self.measurement_binding_hash,
         }
 
     def validate(self) -> bool:
@@ -316,6 +331,9 @@ def _scope_for(
     candidate_identity_hash: str,
     target: ReferenceTargetCommitment,
     split: DatasetSplit,
+    measurement_mode: str = "DIRECT",
+    measurement_binding_hash: str | None = None,
+    reference_identity_hash: str | None = None,
 ) -> FederatedMeasurementScope:
     task = benchmark._tasks[binding.task_id]
     values = tuple(example.input_value for example in task.datasets[split])
@@ -328,8 +346,10 @@ def _scope_for(
         split=split,
         split_commitment_hash=binding.split_commitment_hashes[split.value],
         candidate_skill_hash=candidate_identity_hash,
-        reference_target_commitment_hash=target.commitment_hash,
+        reference_target_commitment_hash=reference_identity_hash or target.commitment_hash,
         domain=domain,
+        measurement_mode=measurement_mode,
+        measurement_binding_hash=measurement_binding_hash,
     )
 
 
@@ -340,6 +360,9 @@ def _validate_scope(
     binding: TaskBenchmarkBinding,
     candidate_identity_hash: str,
     target: ReferenceTargetCommitment,
+    measurement_mode: str = "DIRECT",
+    measurement_binding_hash: str | None = None,
+    reference_identity_hash: str | None = None,
 ) -> bool:
     descriptor = _task_descriptor(benchmark, scope.task_id)
     if (
@@ -349,7 +372,9 @@ def _validate_scope(
         or scope.task_benchmark_binding_hash != binding.binding_hash
         or scope.task_id != binding.task_id
         or scope.candidate_skill_hash != candidate_identity_hash
-        or scope.reference_target_commitment_hash != target.commitment_hash
+        or scope.reference_target_commitment_hash != (reference_identity_hash or target.commitment_hash)
+        or scope.measurement_mode != measurement_mode
+        or scope.measurement_binding_hash != measurement_binding_hash
         or scope.split_commitment_hash != descriptor.split_commitments[scope.split.value]
     ):
         return False
@@ -557,6 +582,9 @@ def _materialize_federated_execution_evidence(
     candidate_callable: Any,
     snapshot_hash: str,
     historical_artifacts: Mapping[str, tuple[Any, ...]],
+    reference_transform: Any | None = None,
+    measurement_mode: str = "DIRECT",
+    measurement_binding_hash: str | None = None,
 ) -> M7FederatedEvidence:
     """Route one fixed executable through the one real M6 pipeline.
 
@@ -571,15 +599,42 @@ def _materialize_federated_execution_evidence(
     if split not in _CERTIFIABLE_SPLITS:
         raise ValueError("genesis_m7_federated_split_not_certifiable")
     _require_hash(candidate_identity_hash, "genesis_m7_federated_candidate_identity_invalid")
+    if measurement_mode not in {"DIRECT", "COMPOSITIONAL"}:
+        raise ValueError("genesis_m7_federated_measurement_mode_invalid")
+    if measurement_mode == "DIRECT" and (
+        measurement_binding_hash is not None or reference_transform is not None
+    ):
+        raise ValueError("genesis_m7_federated_direct_measurement_invalid")
+    if measurement_mode == "COMPOSITIONAL":
+        _require_hash(
+            measurement_binding_hash or "",
+            "genesis_m7_federated_composition_binding_invalid",
+        )
+        if reference_transform is None:
+            raise ValueError("genesis_m7_federated_composition_reference_missing")
     target = _trusted_target_commitment(benchmark, task_id)
     if not _validate_target_commitment(target, benchmark):
         raise ValueError("genesis_m7_federated_target_invalid")
+    reference_identity_hash = (
+        target.commitment_hash
+        if measurement_mode == "DIRECT"
+        else canonical_sha256(
+            {
+                "target_commitment_hash": target.commitment_hash,
+                "measurement_mode": measurement_mode,
+                "measurement_binding_hash": measurement_binding_hash,
+            }
+        )
+    )
     scope = _scope_for(
         benchmark=benchmark,
         binding=task_binding,
         candidate_identity_hash=candidate_identity_hash,
         target=target,
         split=split,
+        measurement_mode=measurement_mode,
+        measurement_binding_hash=measurement_binding_hash,
+        reference_identity_hash=reference_identity_hash,
     )
     if not _validate_scope(
         scope,
@@ -587,11 +642,17 @@ def _materialize_federated_execution_evidence(
         binding=task_binding,
         candidate_identity_hash=candidate_identity_hash,
         target=target,
+        measurement_mode=measurement_mode,
+        measurement_binding_hash=measurement_binding_hash,
+        reference_identity_hash=reference_identity_hash,
     ):
         raise ValueError("genesis_m7_federated_scope_invalid")
 
     claim = TypedClaim(
-        claim_id=f"m7-{task_id}-{split.value.lower()}-reference-equivalence",
+        claim_id=(
+            f"m7-{task_id}-{split.value.lower()}-"
+            f"{measurement_mode.lower()}-reference-equivalence"
+        ),
         schema_version="genesis-m7-federated-evidence-v1",
         claim_type=ClaimType.EXACT_FUNCTION,
         properties={"relation": "reference_equivalence", "m7_scope_hash": scope.scope_hash},
@@ -607,14 +668,15 @@ def _materialize_federated_execution_evidence(
     task = benchmark._tasks[task_id]
 
     def trusted_reference(value: int) -> int:
-        return evaluate_expression(task.target_ast, value, benchmark.specification)
+        output = evaluate_expression(task.target_ast, value, benchmark.specification)
+        return output if reference_transform is None else reference_transform(output)
 
     reliability_campaign, profile = _reliability_material(
         claim=claim,
         descriptor=descriptor,
         reference=trusted_reference,
-        reference_identity_hash=target.commitment_hash,
-        provenance_hash=target.commitment_hash,
+        reference_identity_hash=reference_identity_hash,
+        provenance_hash=reference_identity_hash,
     )
     registry = VerifierRegistry()
     registry.register(descriptor)
@@ -656,14 +718,14 @@ def _materialize_federated_execution_evidence(
         (),
     )
     reference_descriptor = ReferenceDescriptor(
-        f"m7-target-{task_id}",
+        f"m7-target-{task_id}-{measurement_mode.lower()}",
         "genesis-m7-federated-evidence-v1",
         "v1",
-        target.commitment_hash,
+        reference_identity_hash,
         canonical_sha256(
             {"component": "m7-sealed-dsl-reference-evaluator-v1", "dsl_hash": benchmark.specification.dsl_hash}
         ),
-        target.commitment_hash,
+        reference_identity_hash,
         benchmark.manifest.manifest_hash,
         "sealed_m7_benchmark",
         (claim.claim_type.value,),
@@ -688,7 +750,7 @@ def _materialize_federated_execution_evidence(
         reference_descriptor.reference_id,
         reference_descriptor.reference_version,
         reference_descriptor.descriptor_hash,
-        target.commitment_hash,
+        reference_identity_hash,
         qualification_receipt.receipt_hash,
         claim.claim_hash,
         canonical_sha256(claim.domain),
@@ -712,7 +774,7 @@ def _materialize_federated_execution_evidence(
     execution_context = _context(
         claim,
         candidate_identity_hash,
-        target.commitment_hash,
+        reference_identity_hash,
         plan_hash=federation_plan.plan_hash,
         snapshot_hash=snapshot_hash,
     )
@@ -735,7 +797,7 @@ def _materialize_federated_execution_evidence(
         subject=subject,
         descriptor=descriptor,
         verifier=DifferentialVerifier(
-            trusted_reference, reference_identity_hash=target.commitment_hash
+            trusted_reference, reference_identity_hash=reference_identity_hash
         ),
         claim=claim,
         candidate=candidate_callable,
