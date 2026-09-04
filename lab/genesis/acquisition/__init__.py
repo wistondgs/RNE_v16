@@ -40,6 +40,12 @@ from .confirmation import (
     GEIAcceptancePolicy,
     confirmatory_policy,
 )
+from .audit import (
+    AuditClaimReceipt,
+    AuditEvaluationReceipt,
+    AuditSlot,
+    DurableAuditClaimRegistry,
+)
 from .causal import CapabilityCausalArm, CapabilityCausalCertificate, certify_causal_capability
 from .m5_capability_runtime import (
     CapabilityArmRuntime,
@@ -109,6 +115,7 @@ __all__ = [
     "CapabilityMeasurementReceipt", "measure_promoted_capability",
     "CANONICAL_CONFIRMATORY_TASK_IDS", "CampaignGate", "GEIAcceptancePolicy",
     "confirmatory_policy",
+    "AuditClaimReceipt", "AuditEvaluationReceipt", "AuditSlot", "DurableAuditClaimRegistry",
     "CapabilityCausalArm", "CapabilityCausalCertificate", "certify_causal_capability",
     "CapabilityArmRuntime", "CapabilityExecutionBinding", "CapabilityMeasurementOracle",
     "CapabilityOperation", "CapabilityStateAction", "capability_root_state",

@@ -10,6 +10,7 @@ from lab.genesis.acquisition.benchmark import (
     validate_task_benchmark_binding,
 )
 from lab.genesis.acquisition.contracts import (AcquisitionCampaignManifest, CandidateCommitment, CapabilityManifest, ProgramSkillArtifact, PromotionReceipt, PromotionStatus, derive_successor_manifest, validate_candidate_commitment, validate_promotion_receipt)
+from lab.genesis.acquisition.audit import DurableAuditClaimRegistry
 from lab.genesis.acquisition.dsl import DSLSpecification
 from lab.genesis.acquisition.synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
 from lab.genesis.contracts.serialization import canonical_sha256
@@ -30,7 +31,7 @@ class AcquisitionResult:
 class AutonomousAcquisitionCampaign:
     """A no-input pipeline: TRAIN -> candidate commitment -> AUDIT once -> G1."""
     def __init__(self,synthesizer:DeterministicProgramSynthesizer|None=None)->None:self._synthesizer=synthesizer or DeterministicProgramSynthesizer()
-    def run(self,*,campaign:AcquisitionCampaignManifest,specification:DSLSpecification,benchmark:SealedCapabilityBenchmark,g0_manifest:CapabilityManifest,task_id:str,g1_manifest_id:str,task_benchmark_binding:TaskBenchmarkBinding|None=None)->AcquisitionResult:
+    def run(self,*,campaign:AcquisitionCampaignManifest,specification:DSLSpecification,benchmark:SealedCapabilityBenchmark,g0_manifest:CapabilityManifest,task_id:str,g1_manifest_id:str,task_benchmark_binding:TaskBenchmarkBinding|None=None,audit_registry:DurableAuditClaimRegistry|None=None)->AcquisitionResult:
         if campaign.g0_capability_manifest_hash!=g0_manifest.manifest_hash or campaign.dsl_hash!=specification.dsl_hash or benchmark.manifest.dsl_hash!=specification.dsl_hash: raise ValueError("genesis_acquisition_binding_invalid")
         if task_benchmark_binding is not None and (
             task_benchmark_binding.task_id != task_id
@@ -49,7 +50,17 @@ class AutonomousAcquisitionCampaign:
         skill=synthesis.selected_skill
         commitment=CandidateCommitment("genesis-m7-candidate-commitment-v1",skill.skill_hash,campaign.campaign_hash,synthesis.receipt.training_evidence_hash or "",synthesis.receipt.synthesis_hash,synthesis.receipt.ranking_evidence_hash or "")
         if not validate_candidate_commitment(commitment,campaign,synthesis.receipt,skill): raise ValueError("genesis_acquisition_commitment_invalid")
-        audit=benchmark.commit_candidate(task_id,skill).evaluate_once()
+        if campaign.evidence_classification == "CONFIRMATORY_GE_I_EVIDENCE":
+            if task_benchmark_binding is None or audit_registry is None:
+                raise ValueError("genesis_acquisition_confirmatory_audit_registry_required")
+            audit = audit_registry.evaluate(
+                campaign=campaign,
+                task_binding=task_benchmark_binding,
+                commitment=commitment,
+                evaluate_once=lambda: benchmark.commit_candidate(task_id, skill).evaluate_once(),
+            ).audit
+        else:
+            audit=benchmark.commit_candidate(task_id,skill).evaluate_once()
         if audit.exact_pass:
             g1=derive_successor_manifest(g0_manifest,skill,manifest_id=g1_manifest_id,schema_version=g0_manifest.schema_version)
             promotion=PromotionReceipt("genesis-m7-promotion-receipt-v1",campaign.campaign_hash,commitment.commitment_hash,synthesis.receipt.synthesis_hash,skill.skill_hash,audit.result_hash,g0_manifest.manifest_hash,g1.manifest_hash,PromotionStatus.PROMOTED,("audit_exact_pass","candidate_precommitted"))
