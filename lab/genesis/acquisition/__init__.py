@@ -31,7 +31,26 @@ from .benchmark import (
     LearnerTrainingView, SealedCapabilityBenchmark, SplitEvaluation, TaskFamily,
     TaskBenchmarkBinding, canonical_benchmark, validate_task_benchmark_binding,
 )
-from .synthesis import DeterministicProgramSynthesizer, SynthesisOutcome
+from .synthesis import (
+    SEARCH_SEMANTICS_V1_ID,
+    V1_SYNTHESIZER_IMPLEMENTATION_HASH,
+    DeterministicProgramSynthesizer,
+    SynthesisOutcome,
+    replay_v1_synthesis,
+)
+from .ranked_synthesis import (
+    RANKED_SYNTHESIZER_IMPLEMENTATION_HASH,
+    SEARCH_SEMANTICS_V2_ID,
+    RankCanonicalProgramSynthesizer,
+    RankedCandidate,
+    RankedSearchOutcome,
+    RankedSearchPolicy,
+    RankedSearchReceipt,
+    RankedSearchTermination,
+    exhaustive_reference_search,
+    ranked_search_policy,
+    replay_ranked_synthesis,
+)
 from .campaign import AcquisitionResult, AutonomousAcquisitionCampaign, PriorInsufficiencyReceipt
 from .certification import CapabilityMeasurementReceipt, measure_promoted_capability
 from .confirmation import (
@@ -138,7 +157,12 @@ __all__ = [
     "AuditAccess", "BenchmarkManifest", "BenchmarkTaskDescriptor", "DatasetSplit", "Example",
     "LearnerTrainingView", "SealedCapabilityBenchmark", "SplitEvaluation", "TaskFamily",
     "TaskBenchmarkBinding", "canonical_benchmark", "validate_task_benchmark_binding",
-    "DeterministicProgramSynthesizer", "SynthesisOutcome",
+    "SEARCH_SEMANTICS_V1_ID", "V1_SYNTHESIZER_IMPLEMENTATION_HASH",
+    "DeterministicProgramSynthesizer", "SynthesisOutcome", "replay_v1_synthesis",
+    "SEARCH_SEMANTICS_V2_ID", "RANKED_SYNTHESIZER_IMPLEMENTATION_HASH",
+    "RankCanonicalProgramSynthesizer", "RankedCandidate", "RankedSearchOutcome",
+    "RankedSearchPolicy", "RankedSearchReceipt", "RankedSearchTermination",
+    "exhaustive_reference_search", "ranked_search_policy", "replay_ranked_synthesis",
     "AcquisitionResult", "AutonomousAcquisitionCampaign", "PriorInsufficiencyReceipt",
     "CapabilityMeasurementReceipt", "measure_promoted_capability",
     "CANONICAL_CONFIRMATORY_TASK_IDS", "CampaignGate", "GEIAcceptancePolicy",

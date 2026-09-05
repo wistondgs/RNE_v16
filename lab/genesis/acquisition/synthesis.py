@@ -10,6 +10,15 @@ from lab.genesis.acquisition.dsl import DSLSpecification, ProgramOperator, _eval
 from lab.genesis.contracts.serialization import canonical_sha256
 
 
+# This identifier documents the historical semantics rather than claiming the
+# first-seen representative rule was ranking-correct.  It must remain stable:
+# existing M7 evidence is replayed under precisely these semantics.
+SEARCH_SEMANTICS_V1_ID = "FIRST_SEEN_BEHAVIOR_REPRESENTATIVE-v1"
+V1_SYNTHESIZER_IMPLEMENTATION_HASH = canonical_sha256(
+    {"synthesizer": "genesis-m7-deterministic-enumerative-synthesizer-v1"}
+)
+
+
 def _node(op: ProgramOperator, *args: Mapping[str, Any], value: int | None = None) -> Mapping[str, Any]:
     result: dict[str, Any] = {"op": op.value, "args": tuple(args)}
     if value is not None: result["value"] = value
@@ -97,3 +106,32 @@ class DeterministicProgramSynthesizer:
         skill = ProgramSkillArtifact("genesis-m7-program-skill-v1", "FINITE_INTEGER_FUNCTION", specification.dsl_version, {"kind":"integer"}, {"kind":"integer"}, expression, expression_metrics(expression, specification), _primitives(expression), campaign.campaign_hash, (training.training_commitment_hash, training_evidence_hash))
         receipt = SynthesisReceipt("genesis-m7-synthesis-receipt-v1", campaign.campaign_hash, search_space_hash, canonical_sha256(campaign.search_budget), examined, SynthesisTermination.SELECTED, skill.skill_hash, training_evidence_hash, ranking_evidence_hash)
         return SynthesisOutcome(receipt, skill, error)
+
+
+def replay_v1_synthesis(
+    *,
+    campaign: AcquisitionCampaignManifest,
+    specification: DSLSpecification,
+    training: LearnerTrainingView,
+    receipt: SynthesisReceipt,
+) -> SynthesisOutcome:
+    """Replay a historical v1 receipt using only v1 search semantics.
+
+    This deliberately rejects a receipt from any later search engine.  The
+    helper is a narrow replay boundary for H1; normal M7 federation replay
+    continues to invoke :class:`DeterministicProgramSynthesizer` directly.
+    """
+
+    if (
+        not isinstance(receipt, SynthesisReceipt)
+        or receipt.schema_version != "genesis-m7-synthesis-receipt-v1"
+        or campaign.synthesizer_implementation_hash
+        != V1_SYNTHESIZER_IMPLEMENTATION_HASH
+    ):
+        raise ValueError("genesis_v1_synthesis_replay_version_mismatch")
+    outcome = DeterministicProgramSynthesizer().synthesize(
+        campaign=campaign, specification=specification, training=training,
+    )
+    if outcome.receipt.synthesis_hash != receipt.synthesis_hash:
+        raise ValueError("genesis_v1_synthesis_replay_mismatch")
+    return outcome
