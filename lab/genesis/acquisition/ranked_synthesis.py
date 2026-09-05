@@ -160,6 +160,8 @@ class RankedCandidate:
             raise ValueError("genesis_ranked_candidate_invalid")
         object.__setattr__(self, "program_ast", freeze(self.program_ast))
         object.__setattr__(self, "behavior_key", tuple(self.behavior_key))
+        if self.program_hash != canonical_sha256(self.program_ast):
+            raise ValueError("genesis_ranked_candidate_program_hash_invalid")
 
     @property
     def rank(self) -> tuple[int, int, str]:
@@ -219,7 +221,12 @@ class RankedSearchReceipt:
         ):
             if not isinstance(value, int) or value < 0:
                 raise ValueError(reason)
-        if self.canonical_ast_count > self.raw_ast_count or self.deduplicated_count < 0:
+        if (
+            self.canonical_ast_count > self.raw_ast_count
+            or self.behavior_class_count > self.canonical_ast_count
+            or self.deduplicated_count
+            != self.canonical_ast_count - self.behavior_class_count
+        ):
             raise ValueError("genesis_ranked_receipt_counts_inconsistent")
         object.__setattr__(self, "termination_reason", RankedSearchTermination(self.termination_reason))
         if self.current_level is not None and self.current_level <= 0:
@@ -230,6 +237,9 @@ class RankedSearchReceipt:
                 any(value is None for value in candidate_fields)
                 or not is_artifact_hash(self.candidate_hash or "")
                 or self.candidate_level not in levels
+                or self.current_level != self.candidate_level
+                or not levels
+                or self.candidate_level != levels[-1]
                 or not self.current_level_complete
                 or self.termination_reason
                 is not RankedSearchTermination.EXACT_CANDIDATE_AFTER_COMPLETE_LEVEL
@@ -237,6 +247,14 @@ class RankedSearchReceipt:
                 raise ValueError("genesis_ranked_receipt_candidate_invalid")
         elif any(value is not None for value in candidate_fields):
             raise ValueError("genesis_ranked_receipt_absent_candidate_invalid")
+        elif self.termination_reason is RankedSearchTermination.EXACT_CANDIDATE_AFTER_COMPLETE_LEVEL:
+            raise ValueError("genesis_ranked_receipt_missing_exact_candidate")
+        if (
+            self.termination_reason
+            is RankedSearchTermination.FRONTIER_EXHAUSTED_NO_CANDIDATE
+            and not self.current_level_complete
+        ):
+            raise ValueError("genesis_ranked_receipt_frontier_incomplete")
         if (
             self.termination_reason
             is RankedSearchTermination.RESOURCE_EXHAUSTED_INCOMPLETE_LEVEL
@@ -567,7 +585,8 @@ def exhaustive_reference_search(
             RANKED_SYNTHESIZER_IMPLEMENTATION_HASH, policy.policy_hash,
             specification.dsl_hash, training.training_commitment_hash,
             tuple(completed_levels), current_level, level_complete, raw_count,
-            canonical_count, len(behavior_classes), 0, candidate is not None,
+            canonical_count, len(behavior_classes),
+            canonical_count - len(behavior_classes), candidate is not None,
             None if candidate is None else candidate.mdl,
             None if candidate is None else candidate.program_hash, reason, elapsed(),
         )
