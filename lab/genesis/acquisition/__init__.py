@@ -125,6 +125,21 @@ from .battery import (
     execute_confirmatory_campaign,
     predeclare_confirmatory_battery,
 )
+from .complete_frontier import (
+    H2_ADAPTATION_LINEAGE_HASH,
+    CompleteFrontierResourceEstimateV2,
+    CompleteFrontierSearchPolicyV2,
+    CompleteFrontierTaskPlanV2,
+    GEIAcceptancePolicyV2,
+    GEIConfirmatoryBatteryManifestV2,
+    TargetClassFrontierAudit,
+    TargetFrontierWitness,
+    audit_target_class_frontier,
+    complete_frontier_acceptance_policy_v2,
+    complete_frontier_search_policy_v2,
+    estimate_complete_frontier_resources,
+    predeclare_complete_frontier_battery_v2,
+)
 from .replay import (
     M7FederatedReplay,
     replay_m7_capability_arm_evidence,
@@ -190,5 +205,12 @@ __all__ = [
     "GEICampaignStatus", "GEIConfirmatoryBatteryManifest", "GateStatus", "M7Status",
     "build_confirmatory_campaign", "close_confirmatory_battery",
     "execute_confirmatory_campaign", "predeclare_confirmatory_battery",
+    "H2_ADAPTATION_LINEAGE_HASH", "CompleteFrontierResourceEstimateV2",
+    "CompleteFrontierSearchPolicyV2", "CompleteFrontierTaskPlanV2",
+    "GEIAcceptancePolicyV2", "GEIConfirmatoryBatteryManifestV2",
+    "TargetClassFrontierAudit", "TargetFrontierWitness",
+    "audit_target_class_frontier", "complete_frontier_acceptance_policy_v2",
+    "complete_frontier_search_policy_v2", "estimate_complete_frontier_resources",
+    "predeclare_complete_frontier_battery_v2",
     "M7FederatedReplay", "replay_m7_capability_arm_evidence", "replay_m7_federated_evidence",
 ]
