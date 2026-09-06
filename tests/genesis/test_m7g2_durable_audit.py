@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Thread
 
 import pytest
 
+from lab.genesis.acquisition import audit as audit_module
 from lab.genesis.acquisition.audit import AuditClaimReceipt, AuditSlot, DurableAuditClaimRegistry
 from lab.genesis.acquisition.benchmark import DatasetSplit, TaskBenchmarkBinding, canonical_benchmark
 from lab.genesis.acquisition.campaign import AutonomousAcquisitionCampaign
@@ -124,6 +126,36 @@ def test_concurrent_same_candidate_evaluates_once_and_failure_can_resume(tmp_pat
         left, right = tuple(pool.map(lambda _item: retry(), range(2)))
     assert calls == 2
     assert left.evaluation.receipt_hash == right.evaluation.receipt_hash
+
+
+def test_write_once_never_exposes_an_empty_final_record(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A reader must see either no record or a fully fsynced JSON document."""
+
+    policy, _campaign, _binding, _benchmark, _candidate, _commitment = material()
+    registry = DurableAuditClaimRegistry(tmp_path, policy=policy)
+    final_path = tmp_path / "atomic.result.json"
+    payload = {"record": "complete", "value": 7}
+    reached_publish = Event()
+    release_publish = Event()
+    original_link = audit_module.os.link
+
+    def delayed_link(source, destination, *args, **kwargs):
+        reached_publish.set()
+        assert release_publish.wait(timeout=2)
+        return original_link(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(audit_module.os, "link", delayed_link)
+    result: list[bool] = []
+    writer = Thread(target=lambda: result.append(registry._write_once(final_path, payload)))
+    writer.start()
+    assert reached_publish.wait(timeout=2)
+    # The private pending inode exists, but the final name is not observable.
+    assert not final_path.exists()
+    release_publish.set()
+    writer.join(timeout=2)
+
+    assert result == [True]
+    assert registry._read(final_path) == payload
 
 
 def test_confirmatory_campaign_requires_durable_registry(tmp_path) -> None:

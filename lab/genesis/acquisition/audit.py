@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from uuid import uuid4
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic, sleep
@@ -188,23 +189,45 @@ class DurableAuditClaimRegistry:
 
     @staticmethod
     def _write_once(path: Path, payload: Mapping[str, object]) -> bool:
+        """Publish a durable record without ever exposing a partial final file.
+
+        ``O_EXCL`` on the final name is insufficient: it makes an empty final
+        inode observable between ``open`` and ``write``.  A concurrent reader
+        can then mistake a legitimate in-flight result for corruption.  Write
+        and fsync a private sibling first, then atomically hard-link it to the
+        final name.  ``link`` has create-only semantics, unlike ``replace``,
+        so it preserves the write-once audit invariant.
+        """
+
         data = canonical_json_bytes(payload)
-        try:
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            return False
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.pending")
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600,
+        )
         try:
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
-            return True
-        except BaseException:
             try:
-                path.unlink()
+                os.link(temporary, path)
+            except FileExistsError:
+                return False
+            try:
+                directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            except OSError:
+                directory = None
+            if directory is not None:
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            return True
+        finally:
+            try:
+                temporary.unlink()
             except FileNotFoundError:
                 pass
-            raise
 
     @staticmethod
     def _read(path: Path) -> Mapping[str, object]:

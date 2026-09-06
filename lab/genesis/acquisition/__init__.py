@@ -140,6 +140,20 @@ from .complete_frontier import (
     estimate_complete_frontier_resources,
     predeclare_complete_frontier_battery_v2,
 )
+from .v2_execution import (
+    V2_EXECUTION_ADAPTER_IMPLEMENTATION_HASH,
+    V2_EXECUTION_ADAPTER_IMPLEMENTATION_ID,
+    ResourceTerminationCause,
+    V2ExecutionBinding,
+    V2ExecutionOutcome,
+    V2ExecutionTermination,
+    V2LevelTranscript,
+    V2ResourceReceipt,
+    V2SynthesisReceipt,
+    replay_v2_toy_execution,
+    run_v2_toy_execution,
+    validate_v2_execution_outcome,
+)
 from .replay import (
     M7FederatedReplay,
     replay_m7_capability_arm_evidence,
@@ -212,5 +226,10 @@ __all__ = [
     "audit_target_class_frontier", "complete_frontier_acceptance_policy_v2",
     "complete_frontier_search_policy_v2", "estimate_complete_frontier_resources",
     "predeclare_complete_frontier_battery_v2",
+    "V2_EXECUTION_ADAPTER_IMPLEMENTATION_ID", "V2_EXECUTION_ADAPTER_IMPLEMENTATION_HASH",
+    "ResourceTerminationCause", "V2ExecutionBinding", "V2ExecutionOutcome",
+    "V2ExecutionTermination", "V2LevelTranscript", "V2ResourceReceipt",
+    "V2SynthesisReceipt", "run_v2_toy_execution", "replay_v2_toy_execution",
+    "validate_v2_execution_outcome",
     "M7FederatedReplay", "replay_m7_capability_arm_evidence", "replay_m7_federated_evidence",
 ]
