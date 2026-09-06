@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from lab.genesis.acquisition.benchmark import DatasetSplit, SealedCapabilityBenchmark
 from lab.genesis.acquisition.campaign import AcquisitionResult
@@ -427,6 +427,7 @@ def _arm_closures(
     task_id: str,
     acquisition: AcquisitionResult,
     root_instance_id: str,
+    arm_evidence_materializer: Callable[..., M7FederatedEvidence] = materialize_capability_arm_evidence,
 ) -> tuple[CausalArmClosure, ...]:
     closures: list[CausalArmClosure] = []
     for arm_id, action in sorted(actions.items()):
@@ -439,7 +440,7 @@ def _arm_closures(
             active_skills[arm_id],
         )
         evidence = {
-            split: materialize_capability_arm_evidence(
+            split: arm_evidence_materializer(
                 campaign=campaign,
                 baseline=baseline,
                 benchmark=benchmark,
@@ -592,6 +593,7 @@ def materialize_causal_capability_attribution(
     acquisition: AcquisitionResult,
     placebo: ProgramSkillArtifact,
     placebo_commitment: PlaceboCommitment,
+    arm_evidence_materializer: Callable[..., M7FederatedEvidence] = materialize_capability_arm_evidence,
 ) -> CausalCapabilityAttribution:
     """Execute and close C1/C2/C3 with the exact promoted artifact z.
 
@@ -669,6 +671,7 @@ def materialize_causal_capability_attribution(
             active_skills={"control": None, "treatment": promoted, "placebo": placebo},
             campaign=campaign, baseline=baseline, benchmark=benchmark, task_id=task_id,
             acquisition=acquisition, root_instance_id=c1_root_instance,
+            arm_evidence_materializer=arm_evidence_materializer,
         ),
     )
 
@@ -699,6 +702,7 @@ def materialize_causal_capability_attribution(
             active_skills={"intact": promoted, "ablation": None},
             campaign=campaign, baseline=baseline, benchmark=benchmark, task_id=task_id,
             acquisition=acquisition, root_instance_id=c2_root_instance,
+            arm_evidence_materializer=arm_evidence_materializer,
         ),
     )
 
@@ -732,6 +736,7 @@ def materialize_causal_capability_attribution(
             active_skills={"fresh_control": None, "transplant": promoted},
             campaign=campaign, baseline=baseline, benchmark=benchmark, task_id=task_id,
             acquisition=acquisition, root_instance_id=c3_root_instance,
+            arm_evidence_materializer=arm_evidence_materializer,
         ),
     )
     arguments = (

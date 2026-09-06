@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from lab.genesis.acquisition.benchmark import (
     BenchmarkManifest,
@@ -446,6 +446,7 @@ def _certificate_static_bindings_valid(manifest: CausalEvidenceManifest) -> bool
 def replay_causal_capability_attribution(
     store: ContentAddressedArtifactStore,
     manifest_hash: str,
+    arm_evidence_replayer: Callable[[ContentAddressedArtifactStore, str], Any] = replay_m7_capability_arm_evidence,
 ) -> M7CausalReplay:
     """Replay all C1/C2/C3 roots and all fourteen M6 scope closures from CAS."""
 
@@ -491,7 +492,7 @@ def replay_causal_capability_attribution(
                             manifest_hash,
                         )
                     m6 = replay_m6_trace(store, trace_hash)
-                    arm = replay_m7_capability_arm_evidence(store, trace_hash)
+                    arm = arm_evidence_replayer(store, trace_hash)
                     expected = (
                         FederationVerdict.PASS
                         if binding.active_skill_hash == manifest.certificate_payload["promoted_skill_hash"]

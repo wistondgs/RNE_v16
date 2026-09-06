@@ -786,6 +786,7 @@ class GEIBatteryClosure:
             or tasks != CANONICAL_CONFIRMATORY_TASK_IDS
             or tuple(item.task_id for item in assessments) != CANONICAL_CONFIRMATORY_TASK_IDS
             or len({item.campaign.campaign_hash for item in attestations}) != 6
+            or any(getattr(item, "is_confirmatory", True) is not True for item in attestations)
             or any(not item.validate() for item in assessments)
             or any(
                 assessment.attestation_hash != attestation.attestation_hash

@@ -47,6 +47,8 @@ V2_EXECUTION_ADAPTER_IMPLEMENTATION_HASH = canonical_sha256({
     "transcript": "per-level-streaming-digest-v1",
 })
 _BINDING_SCHEMA = "genesis-m7-v2-execution-binding-h2b0"
+_H2B1_BINDING_SCHEMA = "genesis-m7-v2-execution-binding-h2b1"
+_H2B1_FIXTURE_BINDING_SCHEMA = "genesis-m7-v2-execution-binding-h2b1-fixture"
 _TRANSCRIPT_SCHEMA = "genesis-m7-v2-level-transcript-h2b0"
 _RECEIPT_SCHEMA = "genesis-m7-v2-synthesis-execution-receipt-h2b0"
 _RESOURCE_SCHEMA = "genesis-m7-v2-resource-envelope-receipt-h2b0"
@@ -132,18 +134,30 @@ class V2ExecutionBinding:
     binding_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
+        h2b0_scope = self.schema_version == _BINDING_SCHEMA and self.integration_scope == "H2B0_TOY_ONLY"
+        h2b1_scope = self.schema_version == _H2B1_BINDING_SCHEMA and self.integration_scope == "H2B1_CONFIRMATORY_FROZEN"
+        fixture_scope = self.schema_version == _H2B1_FIXTURE_BINDING_SCHEMA and self.integration_scope == "H2B1_NONCANONICAL_FIXTURE"
         if (
-            self.schema_version != _BINDING_SCHEMA
+            not (h2b0_scope or h2b1_scope or fixture_scope)
             or not self.campaign_id
             or not self.task_id
-            or self.integration_scope != "H2B0_TOY_ONLY"
-            or self.campaign_id in CANONICAL_CONFIRMATORY_TASK_IDS
-            or self.campaign_id.startswith("m7h2-confirmatory-")
             or self.search_semantics_id != SEARCH_SEMANTICS_V2_ID
             or self.search_implementation_id
             != "genesis-m7-rank-canonical-enumerative-synthesizer-v2"
             or self.search_implementation_hash != RANKED_SYNTHESIZER_IMPLEMENTATION_HASH
         ):
+            raise ValueError("genesis_v2_execution_binding_identity_invalid")
+        if h2b0_scope and (
+            self.campaign_id in CANONICAL_CONFIRMATORY_TASK_IDS
+            or self.campaign_id.startswith("m7h2-confirmatory-")
+        ):
+            raise ValueError("genesis_v2_execution_binding_identity_invalid")
+        if h2b1_scope and (
+            self.task_id not in CANONICAL_CONFIRMATORY_TASK_IDS
+            or self.campaign_id != f"m7h2-confirmatory-{self.task_id}"
+        ):
+            raise ValueError("genesis_v2_execution_binding_identity_invalid")
+        if fixture_scope and self.campaign_id.startswith("m7h2-confirmatory-"):
             raise ValueError("genesis_v2_execution_binding_identity_invalid")
         for value in (
             self.campaign_hash, self.task_binding_hash, self.acceptance_policy_hash,
@@ -883,12 +897,12 @@ def _outcome_from_worker(
     return outcome
 
 
-def run_v2_toy_execution(
+def run_v2_execution(
     *, binding: V2ExecutionBinding, specification: DSLSpecification,
     training: LearnerTrainingView, test_step_delay_seconds: float = 0.0,
     test_v1_synthesis_tripwire: bool = False,
 ) -> V2ExecutionOutcome:
-    """Execute only a toy V2 integration binding under an external supervisor."""
+    """Execute a version-valid native V2 binding under the H2B0 supervisor."""
 
     if (
         not binding.validate() or not specification.validate()
@@ -978,6 +992,50 @@ def run_v2_toy_execution(
     return V2ExecutionOutcome(receipt, resource, (), None)
 
 
+def run_v2_toy_execution(
+    *, binding: V2ExecutionBinding, specification: DSLSpecification,
+    training: LearnerTrainingView, test_step_delay_seconds: float = 0.0,
+    test_v1_synthesis_tripwire: bool = False,
+) -> V2ExecutionOutcome:
+    """H2B0-only compatibility entrypoint; canonical slots remain rejected."""
+
+    if binding.integration_scope != "H2B0_TOY_ONLY":
+        raise ValueError("genesis_v2_execution_toy_scope_invalid")
+    return run_v2_execution(
+        binding=binding, specification=specification, training=training,
+        test_step_delay_seconds=test_step_delay_seconds,
+        test_v1_synthesis_tripwire=test_v1_synthesis_tripwire,
+    )
+
+
+def run_v2_confirmatory_execution(
+    *, binding: V2ExecutionBinding, specification: DSLSpecification,
+    training: LearnerTrainingView, test_v1_synthesis_tripwire: bool = False,
+) -> V2ExecutionOutcome:
+    """H2B1 entrypoint for a predeclared canonical V2 campaign only."""
+
+    if binding.integration_scope != "H2B1_CONFIRMATORY_FROZEN":
+        raise ValueError("genesis_v2_execution_confirmatory_scope_invalid")
+    return run_v2_execution(
+        binding=binding, specification=specification, training=training,
+        test_v1_synthesis_tripwire=test_v1_synthesis_tripwire,
+    )
+
+
+def run_v2_fixture_execution(
+    *, binding: V2ExecutionBinding, specification: DSLSpecification,
+    training: LearnerTrainingView, test_v1_synthesis_tripwire: bool = False,
+) -> V2ExecutionOutcome:
+    """Noncanonical H2B1 fixture entrypoint; it cannot consume a real slot."""
+
+    if binding.integration_scope != "H2B1_NONCANONICAL_FIXTURE":
+        raise ValueError("genesis_v2_execution_fixture_scope_invalid")
+    return run_v2_execution(
+        binding=binding, specification=specification, training=training,
+        test_v1_synthesis_tripwire=test_v1_synthesis_tripwire,
+    )
+
+
 def validate_v2_execution_outcome(
     *, binding: V2ExecutionBinding, outcome: V2ExecutionOutcome,
 ) -> bool:
@@ -1050,7 +1108,7 @@ def validate_v2_execution_outcome(
     return outcome.selected_candidate is None and receipt.selected_candidate_hash is None
 
 
-def replay_v2_toy_execution(
+def replay_v2_execution(
     *, binding: V2ExecutionBinding, specification: DSLSpecification,
     training: LearnerTrainingView, outcome: V2ExecutionOutcome,
 ) -> V2ExecutionOutcome:
@@ -1112,3 +1170,42 @@ def replay_v2_toy_execution(
     ):
         raise ValueError("genesis_v2_execution_replay_mismatch")
     return replayed
+
+
+def replay_v2_toy_execution(
+    *, binding: V2ExecutionBinding, specification: DSLSpecification,
+    training: LearnerTrainingView, outcome: V2ExecutionOutcome,
+) -> V2ExecutionOutcome:
+    """H2B0-only replay compatibility entrypoint."""
+
+    if binding.integration_scope != "H2B0_TOY_ONLY":
+        raise ValueError("genesis_v2_execution_toy_scope_invalid")
+    return replay_v2_execution(
+        binding=binding, specification=specification, training=training, outcome=outcome,
+    )
+
+
+def replay_v2_confirmatory_execution(
+    *, binding: V2ExecutionBinding, specification: DSLSpecification,
+    training: LearnerTrainingView, outcome: V2ExecutionOutcome,
+) -> V2ExecutionOutcome:
+    """H2B1 replay entrypoint, never a second acquisition attempt."""
+
+    if binding.integration_scope != "H2B1_CONFIRMATORY_FROZEN":
+        raise ValueError("genesis_v2_execution_confirmatory_scope_invalid")
+    return replay_v2_execution(
+        binding=binding, specification=specification, training=training, outcome=outcome,
+    )
+
+
+def replay_v2_fixture_execution(
+    *, binding: V2ExecutionBinding, specification: DSLSpecification,
+    training: LearnerTrainingView, outcome: V2ExecutionOutcome,
+) -> V2ExecutionOutcome:
+    """Replay only a noncanonical H2B1 integration fixture."""
+
+    if binding.integration_scope != "H2B1_NONCANONICAL_FIXTURE":
+        raise ValueError("genesis_v2_execution_fixture_scope_invalid")
+    return replay_v2_execution(
+        binding=binding, specification=specification, training=training, outcome=outcome,
+    )
