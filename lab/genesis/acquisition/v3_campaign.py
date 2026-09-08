@@ -578,45 +578,32 @@ class V3CanonicalExecutor:
         # Load benchmark first to get DSL specification
         benchmark = self._load_benchmark_for_campaign(campaign)
 
-        # Build V2 execution binding (engine input, not identity)
-        # Note: V2ExecutionBinding requires many fields; we derive them from V3 campaign
-        binding = V2ExecutionBinding(
-            schema_version="genesis-m7-v2-execution-binding-h2b1",
+        # Build V3 execution binding (native V3 identity, V2 search engine)
+        binding = V3ExecutionBinding(
+            schema_version="genesis-m7-v3-execution-binding-h3a2",
             campaign_id=campaign.campaign_id,
             task_id=campaign.task_id,
             campaign_hash=campaign.campaign_hash,
-            task_binding_hash=campaign.campaign_binding_hash,
-            acceptance_policy_hash=campaign.acceptance_policy_hash,
+            predeclaration_hash=campaign.predeclaration_hash,
             battery_manifest_hash=campaign.battery_manifest_hash,
+            acceptance_policy_hash=campaign.acceptance_policy_hash,
             search_policy_hash=campaign.frontier_policy_hash,
-            ranked_engine_policy=ranked_search_policy(
-                specification=benchmark.specification,
-                policy_id="m7h3-v3-confirmatory",
-                max_ast_nodes=benchmark.specification.max_ast_nodes,
-                max_ast_depth=benchmark.specification.max_ast_depth,
-                max_raw_ast_evaluations=10000,
-                max_distinct_behaviors=1000,
-                wall_time_limit_seconds=300,
-            ),
             dsl_hash=benchmark.specification.dsl_hash,
             search_semantics_id=SEARCH_SEMANTICS_V2_ID,
-            search_implementation_id="rank-canonical-v2",
             search_implementation_hash=RANKED_SYNTHESIZER_IMPLEMENTATION_HASH,
-            max_mdl=benchmark.specification.max_ast_nodes,
-            max_depth=benchmark.specification.max_ast_depth,
-            max_nodes=benchmark.specification.max_ast_nodes,
+            max_ast_nodes=benchmark.specification.max_ast_nodes,
+            max_ast_depth=benchmark.specification.max_ast_depth,
             max_raw_ast_evaluations=10000,
             max_distinct_behaviors=1000,
             max_wall_time_seconds=300,
             max_peak_memory_mib=1024,
-            integration_scope="H2B1_CONFIRMATORY_FROZEN",
         )
 
         # Get training view (learner-only)
         training = benchmark.learner_view(campaign.task_id)
 
-        # Execute search via supervised process
-        outcome = run_v2_confirmatory_execution(
+        # Execute search via supervised process using V2 engine with V3 binding
+        outcome = run_v3_search_execution(
             binding=binding,
             specification=benchmark.specification,
             training=training,
@@ -624,7 +611,7 @@ class V3CanonicalExecutor:
         )
 
         # Validate outcome
-        if not validate_v2_execution_outcome(binding=binding, outcome=outcome):
+        if not validate_v3_search_outcome(binding=binding, outcome=outcome):
             raise ValueError("genesis_h3_v3_search_outcome_invalid")
 
         # Store search receipt in CAS
@@ -1126,27 +1113,41 @@ class V3CanonicalExecutor:
     ) -> SealedCapabilityBenchmark:
         """Load sealed benchmark for campaign.
 
-        The benchmark must be available as a sealed artifact.  In production,
-        this loads from CAS using the benchmark_manifest_hash.  For toy tests,
-        a benchmark provider may be injected.
+        The benchmark authority derives from the sealed predeclaration, not from
+        CAS presence.  The provider reconstructs the authorized benchmark and
+        verifies it against the predeclaration commitments.
         """
         if self._benchmark_provider is not None:
-            return self._benchmark_provider(campaign)
+            benchmark = self._benchmark_provider(campaign)
+            self._verify_benchmark_authority(benchmark, campaign)
+            return benchmark
 
-        # Production path: load from CAS
-        # The benchmark manifest hash is in campaign.benchmark_manifest_hash
-        # This requires the full benchmark to be stored in CAS
-        try:
-            payload = self.cas.get(campaign.benchmark_manifest_hash)
-            # Reconstruct benchmark from payload
-            # This requires a from_payload method on SealedCapabilityBenchmark
-            raise NotImplementedError(
-                "CAS-based benchmark loading requires SealedCapabilityBenchmark.from_payload"
-            )
-        except Exception as e:
-            raise ValueError(
-                f"genesis_h3_v3_benchmark_not_available:{campaign.benchmark_manifest_hash}"
-            ) from e
+        # Production path: reconstruct from sealed predeclaration
+        # The benchmark must be derivable from the sealed DSL specification
+        # and the predeclaration's split commitments
+        raise NotImplementedError(
+            "Production benchmark authority requires V3BenchmarkAuthorityProvider"
+        )
+
+    def _verify_benchmark_authority(
+        self,
+        benchmark: SealedCapabilityBenchmark,
+        campaign: V3ConfirmatoryCampaignManifest,
+    ) -> None:
+        """Verify benchmark matches sealed predeclaration commitments."""
+        # Verify task exists in benchmark
+        if campaign.task_id not in benchmark._tasks:
+            raise ValueError(f"genesis_h3_v3_benchmark_task_missing:{campaign.task_id}")
+
+        # Verify split commitments match
+        task = benchmark._tasks[campaign.task_id]
+        for split_name, expected_hash in campaign.split_commitment_hashes.items():
+            split = DatasetSplit[split_name]
+            actual_hash = task.descriptor.split_commitments[split.value]
+            if actual_hash != expected_hash:
+                raise ValueError(
+                    f"genesis_h3_v3_benchmark_split_mismatch:{split_name}"
+                )
 
 
 # =============================================================================
@@ -1183,3 +1184,153 @@ def execute_v3_confirmatory_battery(
         authorization_commit=authorization_commit,
         predeclaration_path=preregistration_path,
     )
+
+
+# =============================================================================
+# V3 Execution Binding (H3A2)
+# =============================================================================
+
+@dataclass(frozen=True, slots=True)
+class V3ExecutionBinding:
+    """Native V3 execution binding; V2 search engine is a reusable component."""
+
+    schema_version: str
+    campaign_id: str
+    task_id: str
+    campaign_hash: str
+    predeclaration_hash: str
+    battery_manifest_hash: str
+    acceptance_policy_hash: str
+    search_policy_hash: str
+    dsl_hash: str
+    search_semantics_id: str
+    search_implementation_hash: str
+    max_ast_nodes: int
+    max_ast_depth: int
+    max_raw_ast_evaluations: int
+    max_distinct_behaviors: int
+    max_wall_time_seconds: int
+    max_peak_memory_mib: int
+    binding_hash: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        if self.schema_version != "genesis-m7-v3-execution-binding-h3a2":
+            raise ValueError("genesis_h3_v3_execution_binding_schema_invalid")
+        if not self.campaign_id or not self.task_id:
+            raise ValueError("genesis_h3_v3_execution_binding_identity_invalid")
+        if self.search_semantics_id != SEARCH_SEMANTICS_V2_ID:
+            raise ValueError("genesis_h3_v3_execution_binding_semantics_invalid")
+        for value in (
+            self.campaign_hash, self.predeclaration_hash, self.battery_manifest_hash,
+            self.acceptance_policy_hash, self.search_policy_hash, self.dsl_hash,
+            self.search_implementation_hash,
+        ):
+            _require_hash(value, "genesis_h3_v3_execution_binding_hash_invalid")
+        for value in (
+            self.max_ast_nodes, self.max_ast_depth, self.max_raw_ast_evaluations,
+            self.max_distinct_behaviors, self.max_wall_time_seconds, self.max_peak_memory_mib,
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError("genesis_h3_v3_execution_binding_limit_invalid")
+        object.__setattr__(self, "binding_hash", canonical_sha256(self.canonical_payload()))
+
+    def canonical_payload(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "campaign_id": self.campaign_id,
+            "task_id": self.task_id,
+            "campaign_hash": self.campaign_hash,
+            "predeclaration_hash": self.predeclaration_hash,
+            "battery_manifest_hash": self.battery_manifest_hash,
+            "acceptance_policy_hash": self.acceptance_policy_hash,
+            "search_policy_hash": self.search_policy_hash,
+            "dsl_hash": self.dsl_hash,
+            "search_semantics_id": self.search_semantics_id,
+            "search_implementation_hash": self.search_implementation_hash,
+            "max_ast_nodes": self.max_ast_nodes,
+            "max_ast_depth": self.max_ast_depth,
+            "max_raw_ast_evaluations": self.max_raw_ast_evaluations,
+            "max_distinct_behaviors": self.max_distinct_behaviors,
+            "max_wall_time_seconds": self.max_wall_time_seconds,
+            "max_peak_memory_mib": self.max_peak_memory_mib,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class V3SearchOutcome:
+    """V3 search execution outcome; wraps V2 engine receipt with V3 identity."""
+
+    binding: V3ExecutionBinding
+    v2_outcome: V2ExecutionOutcome
+
+    @property
+    def receipt(self) -> Any:
+        return self.v2_outcome.receipt
+
+    @property
+    def selected_candidate_hash(self) -> str | None:
+        return self.v2_outcome.receipt.selected_candidate_hash
+
+    @property
+    def selected_candidate_ast(self) -> Mapping[str, Any] | None:
+        return self.v2_outcome.receipt.selected_candidate_ast
+
+
+def run_v3_search_execution(
+    *,
+    binding: V3ExecutionBinding,
+    specification: DSLSpecification,
+    training: LearnerTrainingView,
+    supervisor_root: Path,
+) -> V3SearchOutcome:
+    """Execute V3 search using V2 rank-canonical engine."""
+    # Build V2 binding internally for the engine
+    # This is engine input, not V3 identity
+    v2_binding = V2ExecutionBinding(
+        schema_version="genesis-m7-v2-execution-binding-h2b0",
+        campaign_id=f"v3-search-{binding.campaign_id}",
+        task_id=binding.task_id,
+        campaign_hash=binding.campaign_hash,
+        task_binding_hash=binding.binding_hash,
+        acceptance_policy_hash=binding.acceptance_policy_hash,
+        battery_manifest_hash=binding.battery_manifest_hash,
+        search_policy_hash=binding.search_policy_hash,
+        ranked_engine_policy=ranked_search_policy(
+            specification=specification,
+            policy_id="m7h3-v3-search",
+            max_ast_nodes=binding.max_ast_nodes,
+            max_ast_depth=binding.max_ast_depth,
+            max_raw_ast_evaluations=binding.max_raw_ast_evaluations,
+            max_distinct_behaviors=binding.max_distinct_behaviors,
+            wall_time_limit_seconds=binding.max_wall_time_seconds,
+        ),
+        dsl_hash=binding.dsl_hash,
+        search_semantics_id=binding.search_semantics_id,
+        search_implementation_id="genesis-m7-rank-canonical-enumerative-synthesizer-v2",
+        search_implementation_hash=binding.search_implementation_hash,
+        max_mdl=binding.max_ast_nodes,
+        max_depth=binding.max_ast_depth,
+        max_nodes=binding.max_ast_nodes,
+        max_raw_ast_evaluations=binding.max_raw_ast_evaluations,
+        max_distinct_behaviors=binding.max_distinct_behaviors,
+        max_wall_time_seconds=binding.max_wall_time_seconds,
+        max_peak_memory_mib=binding.max_peak_memory_mib,
+        integration_scope="H2B0_TOY_ONLY",
+    )
+
+    # Execute V2 search
+    v2_outcome = run_v2_confirmatory_execution(
+        binding=v2_binding,
+        specification=specification,
+        training=training,
+        supervisor_root=supervisor_root,
+    )
+
+    return V3SearchOutcome(binding=binding, v2_outcome=v2_outcome)
+
+
+def validate_v3_search_outcome(*, binding: V3ExecutionBinding, outcome: V3SearchOutcome) -> bool:
+    """Validate V3 search outcome."""
+    if outcome.binding != binding:
+        return False
+    return validate_v2_execution_outcome(binding=outcome.v2_outcome.binding, outcome=outcome.v2_outcome)
