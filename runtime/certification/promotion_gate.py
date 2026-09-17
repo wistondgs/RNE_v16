@@ -49,6 +49,7 @@ class PromotionGate:
         transition_vector=None,
         belief_shift=None,
         retrieval_metrics: Dict[str, Any] | None = None,
+        organism_state=None,
     ) -> Dict[str, Any]:
         """Certifica un episodio.
 
@@ -173,9 +174,14 @@ class PromotionGate:
             retrieval_metrics=retrieval_metrics,
         )
         t5_mode = get_t5_mode()
+        # D-047: se reenvía el estado autoritativo para que el tribunal OBSERVE
+        # en vez de acuñar una segunda transición fisiológica. Explícito y no por
+        # una clave más en `episode_result`: así queda auditable quién le dio la
+        # fisiología al tribunal.
         t5_result = self.court_runtime.ingest_episode(
             run_id=run_id,
             episode_result=episode_result,
+            organism_state=organism_state,
         )
         transfer_metadata = {
             "compatibility_class": transfer.compatibility_class,

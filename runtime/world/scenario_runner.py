@@ -1286,6 +1286,9 @@ class ScenarioEpisodeRunner:
             transition_vector=transition_vector,
             belief_shift=belief_shift,
             retrieval_metrics=retrieval_metrics,
+            # D-047: la transición autoritativa ya ocurrió en 12c. El tribunal la
+            # observa; no la vuelve a derivar.
+            organism_state=self._organism_state,
         )
         # El resumen se escribía SOLO en el dict de retorno (`{**episode_result, ...}`),
         # así que ningún consumidor del `episode_result` vivo lo veía nunca: ni

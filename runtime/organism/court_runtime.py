@@ -15,6 +15,7 @@ from .regime_renormalization import RegimeRenormalizationEngine, Renormalization
 from .risk_process import ConstitutionalRiskProcess, RiskState
 from .t5_mode import get_t5_mode
 from .trajectory import OrganismTrajectory
+from .state import OrganismState
 from .trajectory_state_machine import TrajectoryStateMachine
 from .viability_kernel import TrajectoryViabilityKernel
 
@@ -260,7 +261,21 @@ class ConstitutionalCourtRuntime:
                 metadata={"mode": mode, "step_index": step_index},
             )
 
-    def ingest_episode(self, *, run_id: str, episode_result: Dict[str, Any]) -> CourtEpisodeResult | None:
+    def ingest_episode(
+        self,
+        *,
+        run_id: str,
+        episode_result: Dict[str, Any],
+        organism_state: OrganismState | None = None,
+    ) -> CourtEpisodeResult | None:
+        """Evalúa un episodio cerrado.
+
+        D-047 — `organism_state` es el estado POST-transición que produjo la
+        autoridad (`Kernel → Runner → transition_organism_state`). Cuando llega,
+        el tribunal lo OBSERVA y no acuña fisiología propia. Cuando no llega —el
+        camino del episodio mínimo, que no tiene `OrganismState`— el tribunal ES
+        la única autoridad y deriva como siempre.
+        """
         mode = get_t5_mode()
         if mode == "off":
             return None
@@ -276,13 +291,21 @@ class ConstitutionalCourtRuntime:
             trajectory = OrganismTrajectory(trajectory_id=f"traj-{run_id}")
             self._trajectory_by_run[run_id] = trajectory
 
-        snapshot = self.state_machine.advance(
-            trajectory=trajectory,
-            regime=scenario_name,
-            episode_result=episode_result,
-            new_snapshot_id=f"snap-{uuid4().hex[:12]}",
-            timestamp=timestamp,
-        )
+        if organism_state is not None:
+            snapshot = self.state_machine.observe(
+                trajectory=trajectory,
+                regime=scenario_name,
+                episode_result=episode_result,
+                authoritative_state=organism_state,
+            )
+        else:
+            snapshot = self.state_machine.advance(
+                trajectory=trajectory,
+                regime=scenario_name,
+                episode_result=episode_result,
+                new_snapshot_id=f"snap-{uuid4().hex[:12]}",
+                timestamp=timestamp,
+            )
 
         window = trajectory.window(8)
         digest = trajectory.digest(window_size=8)
