@@ -68,6 +68,16 @@ class LifeKernelConfig:
     restore: bool = True
     checkpoint_interval: int = 1
     memory_filter_mode: str = "strict_same_scenario"
+    # Criterio de retención del lazo de autoevolución ρₜ: qué cantidad decide
+    # conservar o revertir una automodificación. Default "ioc" = conducta
+    # histórica. Ver RETENTION_SIGNALS en runtime/organism/autoevolution.py.
+    retention_signal: str = "ioc"
+    # De dónde saca el trayecto del organismo su señal de éxito. "none" =
+    # conducta histórica (el veredicto no existe aún cuando el trayecto avanza,
+    # así que el organismo toma la penalización de "no certificado" siempre).
+    # "previous_certificate" = el último veredicto emitido, con un paso de
+    # retardo. Ver el bloque 12c en runtime/world/scenario_runner.py.
+    trajectory_reward: str = "none"
     closure_profile: str = "baseline_fixed"
     default_external_input: float = 0.04
     perturbation_spike: float = 0.14
@@ -717,6 +727,16 @@ class LifeKernel:
         self._record_nonacting_wound(decision=decision, vitals=vitals)
         if decision.action in {"quarantine", "rollback"}:
             self._maybe_reflect()
+        # El siguiente step decide con `last_vitals` (ver step(): `pre_vitals =
+        # self.last_vitals`). Esta rama CURA al organismo —restaura el último
+        # checkpoint sano y recomputa vitales frescos— y usaba esos vitales para
+        # el resultado, el checkpoint y el evento, pero NO los guardaba. Así que
+        # el paso siguiente volvía a leer los vitales enfermos de antes del
+        # rollback y volvía a decidir rollback: un pestillo del que no se sale.
+        # Medido: muerte en el paso 32 y 117 de 150 pasos congelados repitiendo
+        # el mismo checkpoint. Si la restauración NO ocurre, `vitals` sigue
+        # siendo `pre_vitals` y esta línea es un no-op, que es lo correcto.
+        self.last_vitals = vitals
         return LifeStepResult(
             run_id=self.run_id,
             step_index=self.total_steps,
@@ -836,6 +856,8 @@ class LifeKernel:
             closure_profile=closure_profile,
             organism_state=self.organism_state,
             lineage=self.lineage,
+            retention_signal=getattr(self.config, "retention_signal", "ioc"),
+            trajectory_reward=getattr(self.config, "trajectory_reward", "none"),
         )
         # La identidad soberana debe fijarse antes de restaurar la cadena dinámica;
         # un checkpoint de otro organismo/linaje se rechaza, no se reetiqueta.

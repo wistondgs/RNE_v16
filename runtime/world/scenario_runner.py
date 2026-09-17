@@ -87,6 +87,8 @@ class ScenarioEpisodeRunner:
         organism_state: OrganismState | None = None,
         lineage: LineageState | None = None,
         reward_guided=None,
+        retention_signal: str = "ioc",
+        trajectory_reward: str = "none",
     ):
         """Inicializa runner con escenario especificado.
 
@@ -102,7 +104,19 @@ class ScenarioEpisodeRunner:
             organism_state: Estado inicial del organismo (para continuar una vida
                 a través de varios runners/regímenes, p. ej. el life-loop).
             lineage: LineageState compartido para continuidad generacional.
+            retention_signal: qué cantidad decide si una automodificación se
+                conserva o se revierte ('ioc' | 'viability' | 'both'). Ver
+                RETENTION_SIGNALS en runtime/organism/autoevolution.py.
+            trajectory_reward: de dónde saca el trayecto del organismo su señal
+                de éxito ('none' | 'previous_certificate'). Ver el bloque 12c.
         """
+        if trajectory_reward not in ("none", "previous_certificate"):
+            raise ValueError(
+                f"TRAJECTORY_REWARD_UNKNOWN: {trajectory_reward!r}; "
+                "conocidas: ['none', 'previous_certificate']"
+            )
+        self._trajectory_reward = trajectory_reward
+        self._last_certification: Dict[str, Any] | None = None
         self.storage = storage or get_storage()
         self.run_id = run_id or f"run-{uuid4()}"
         self._trajectory_regime_label = DEFAULT_SCENARIO
@@ -213,6 +227,7 @@ class ScenarioEpisodeRunner:
                 "memory_filter_mode": self.memory_filter_mode,
             },
             knob_writer=self._apply_knob_changes,
+            retention_signal=retention_signal,
         )
 
         # Multiplicación de ganancia (canon §8): selector de overlays guiado por
@@ -1160,6 +1175,19 @@ class ScenarioEpisodeRunner:
         self._previous_belief = current_belief
 
         # 12c. T5 SOVEREIGNTY: Transition organism state and append to trajectory
+        #
+        # ORDEN DEL CICLO, medido: la transición corre AQUÍ (12c) y el certificado
+        # no se emite hasta el paso 13, ~90 líneas más abajo. `TrajectoryStateMachine`
+        # lee `episode_result["certification"]["verdict"]` (trajectory_state_machine.py:34)
+        # y en este punto esa clave NO EXISTE todavía, así que `is_certified` es False
+        # SIEMPRE. Consecuencia medida: margen −0.03 y degradación +0.02 en cada
+        # episodio de la vida del organismo, mientras los 25/25 certificados emitidos
+        # decían `certified`. El organismo se castigaba por acertar, hasta morir en
+        # el paso ~32. Con `trajectory_reward="previous_certificate"` se le entrega
+        # el último veredicto emitido: recompensa con un paso de retardo, que es la
+        # única que existe en este punto. Default "none" = conducta histórica.
+        if self._trajectory_reward == "previous_certificate" and self._last_certification:
+            episode_result["certification"] = dict(self._last_certification)
         previous_state = self._organism_state
         # B41: el state_id se ancla al GENOMA (organism_id), no a la corrida (run_id) —
         # coherente con la génesis del kernel (state-0-{organism_id}).
@@ -1259,6 +1287,18 @@ class ScenarioEpisodeRunner:
             belief_shift=belief_shift,
             retrieval_metrics=retrieval_metrics,
         )
+        # El resumen se escribía SOLO en el dict de retorno (`{**episode_result, ...}`),
+        # así que ningún consumidor del `episode_result` vivo lo veía nunca: ni
+        # `trajectory_state_machine.py:34` (veredicto), ni `vitals.py:215`
+        # (certificate_id), ni `reality/belief_state.py:197`. Se escribe en sitio.
+        cert_summary = {
+            "certificate_id": certification["certificate"].certificate_id,
+            "verdict": certification["certificate"].verdict,
+            "promotion_candidate": certification["certificate"].promotion_candidate,
+            "decision_verdict": certification["decision"].verdict,
+        }
+        episode_result["certification"] = dict(cert_summary)
+        self._last_certification = dict(cert_summary)
         self._previous_result = episode_result
 
         # 13b. R2 — lazo de autoevolución (ρₜ): el organismo observa su propio
@@ -1664,11 +1704,6 @@ class ScenarioEpisodeRunner:
 
         return {
             **episode_result,
-            "certification": {
-                "certificate_id": certification["certificate"].certificate_id,
-                "verdict": certification["certificate"].verdict,
-                "promotion_candidate": certification["certificate"].promotion_candidate,
-                "decision_verdict": certification["decision"].verdict,
-            },
+            "certification": dict(cert_summary),
             "eml_shadow": eml_shadow,
         }

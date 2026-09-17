@@ -53,6 +53,23 @@ def _risk_enforcement_enabled() -> bool:
     return os.environ.get("RNFE_RISK_ENFORCEMENT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Criterio de RETENCIÓN: qué cantidad decide si una automodificación se conserva
+# o se revierte al cerrarse la ventana post-aplicación.
+#
+#   "ioc"       — ΔIoC (histórico). Mide buena formación del cierre, no viabilidad.
+#   "viability" — Δmargen de viabilidad respecto al momento de aplicar. Es la
+#                 variable esencial de Ashby: el organismo conserva lo que lo
+#                 mantuvo en la región viable.
+#   "both"      — conserva solo lo que no dañó NINGUNA de las dos.
+#
+# Por qué existe la opción: ΔIoC es una primera diferencia de una cantidad que
+# converge. Medido en este árbol, IoC se aplana a un único valor hacia el paso
+# ~50 y desde ahí todo ΔIoC vale exactamente 0.0, así que `mean < 0.0` es falso
+# siempre y el lazo COMMITEA toda modificación, incluso una que hunda el margen.
+# El default se mantiene en "ioc" para que la conducta histórica sea idéntica.
+RETENTION_SIGNALS = ("ioc", "viability", "both")
+
+
 class AutoEvolutionController:
     """Lazo ρₜ: observa cada episodio certificado y decide evolución/rollback."""
 
@@ -70,6 +87,7 @@ class AutoEvolutionController:
         patience: int = 2,
         post_window: int = 3,
         cooldown: int = 4,
+        retention_signal: str = "ioc",
         enabled: bool | None = None,
     ):
         self.run_id = run_id
@@ -86,6 +104,13 @@ class AutoEvolutionController:
         self.patience = patience
         self.post_window = post_window
         self.cooldown = cooldown
+        _signal = (retention_signal or "ioc").strip().lower()
+        if _signal not in RETENTION_SIGNALS:
+            raise ValueError(
+                f"RETENTION_SIGNAL_UNKNOWN: {retention_signal!r}; "
+                f"conocidas: {list(RETENTION_SIGNALS)}"
+            )
+        self.retention_signal = _signal
         self.enabled = _enabled_by_env() if enabled is None else enabled
 
         self._consecutive_degraded = 0
@@ -217,7 +242,7 @@ class AutoEvolutionController:
 
         # 2) Monitor post-aplicación de una modificación activa.
         if self._post_monitor is not None:
-            return self._advance_post_monitor(risk_plus=risk_plus)
+            return self._advance_post_monitor(risk_plus=risk_plus, margin=margin)
 
         # 3) Checkpoint sano (último estado bueno conocido).
         if not degraded and constitutional.get("verdict", "valid") == "valid":
@@ -320,6 +345,10 @@ class AutoEvolutionController:
             "knob_backup": knob_backup,
             "state_checkpoint": organism_state,
             "deltas": [],
+            # Línea base de la variable esencial: el margen QUE HABÍA al mutar.
+            # Contra esto se compara la ventana, no contra el episodio anterior.
+            "margin_baseline": margin,
+            "margins": [],
         }
         self._consecutive_degraded = 0
         summary["action"] = "applied"
@@ -353,12 +382,16 @@ class AutoEvolutionController:
             return {**summary, "restored_state": restored_state}
         return summary
 
-    def _advance_post_monitor(self, *, risk_plus: Dict[str, Any]) -> Dict[str, Any]:
+    def _advance_post_monitor(
+        self, *, risk_plus: Dict[str, Any], margin: float | None = None
+    ) -> Dict[str, Any]:
         monitor = self._post_monitor
         assert monitor is not None
         delta = risk_plus.get("delta_ioc")
         if delta is not None:
             monitor["deltas"].append(float(delta))
+        if margin is not None:
+            monitor.setdefault("margins", []).append(float(margin))
         monitor["episodes_left"] -= 1
         if monitor["episodes_left"] > 0:
             return {
@@ -369,16 +402,51 @@ class AutoEvolutionController:
 
         deltas = monitor["deltas"]
         mean_delta = (sum(deltas) / len(deltas)) if deltas else 0.0
+
+        # Δviabilidad: media de la ventana MENOS el margen que había al aplicar.
+        # Se promedia la ventana (y no se mira solo el extremo) porque una sola
+        # lectura puede ser ruido de un episodio; el promedio responde a "durante
+        # el monitoreo, ¿estuvo el organismo más viable que cuando mutó?".
+        margins = monitor.get("margins") or []
+        baseline = monitor.get("margin_baseline")
+        mean_delta_viab = (
+            (sum(margins) / len(margins)) - float(baseline)
+            if margins and baseline is not None
+            else None
+        )
         self._post_monitor = None
-        if deltas and mean_delta < 0.0:
-            # La modificación empeoró el cierre: revertir mandos + estado.
+
+        hurt_ioc = bool(deltas) and mean_delta < 0.0
+        hurt_viab = mean_delta_viab is not None and mean_delta_viab < 0.0
+        if self.retention_signal == "viability":
+            revert, decided_by = hurt_viab, "delta_viability"
+        elif self.retention_signal == "both":
+            revert = hurt_ioc or hurt_viab
+            decided_by = "delta_ioc" if hurt_ioc else ("delta_viability" if hurt_viab else "ninguna")
+        else:  # "ioc" — criterio histórico, intacto
+            revert, decided_by = hurt_ioc, "delta_ioc"
+
+        # Traza: las DOS cantidades se reportan siempre, decida quien decida.
+        medidas = {
+            "retention_signal": self.retention_signal,
+            "retention_decided_by": decided_by,
+            "mean_delta_ioc": round(mean_delta, 6),
+            "mean_delta_viability": (
+                None if mean_delta_viab is None else round(mean_delta_viab, 6)
+            ),
+        }
+
+        if revert:
+            # La modificación empeoró lo que el criterio vigila: revertir mandos + estado.
             self.knob_writer(monitor["knob_backup"])
             rollback_id = f"rb-{uuid4().hex[:8]}"
             self.lineage.record_rollback(
                 rollback_id=rollback_id,
                 description=(
-                    f"revert de {monitor['proposal_id']}: ΔIoC medio "
-                    f"{mean_delta:.4f} < 0 en ventana post-aplicación"
+                    f"revert de {monitor['proposal_id']} por {decided_by}: ΔIoC medio "
+                    f"{mean_delta:.4f}, Δviabilidad media "
+                    f"{'n/d' if mean_delta_viab is None else format(mean_delta_viab, '.4f')}, "
+                    f"en ventana post-aplicación"
                 ),
             )
             self._cooldown_left = self.cooldown
@@ -386,7 +454,7 @@ class AutoEvolutionController:
                 "action": "reverted",
                 "proposal_id": monitor["proposal_id"],
                 "rollback_id": rollback_id,
-                "mean_delta_ioc": round(mean_delta, 6),
+                **medidas,
             }
             self._emit("autoevolution.reverted", summary)
             return {**summary, "restored_state": monitor["state_checkpoint"]}
@@ -394,8 +462,8 @@ class AutoEvolutionController:
         summary = {
             "action": "committed",
             "proposal_id": monitor["proposal_id"],
-            "mean_delta_ioc": round(mean_delta, 6),
             "generation": self.lineage.generation,
+            **medidas,
         }
         self._emit("autoevolution.committed", summary)
         return summary
