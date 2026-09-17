@@ -31,17 +31,16 @@ from runtime.organism.state import (
 )
 from runtime.storage import StorageConfig, StorageFactory
 
-# Commit i: todo este módulo DEBE fallar en HEAD efc68b7 — el controller no exporta
-# ni restaura nada. Los commits ii-iv retiran la marca a medida que lo hacen pasar.
-pytestmark = pytest.mark.xfail(
-    strict=True, reason="H-046: el estado del controller no sobrevive al rebuild (commit i)"
-)
+# Commit ii retiró la marca xfail del módulo: el controller exporta y restaura.
+# A10 (fisiología adoptada) sigue marcada hasta el commit iv.
+XF_IV = pytest.mark.xfail(strict=True, reason="H-046: los knobs adoptados no se reaplican aún (commit iv)")
 
 
 # ── helpers (espejo de tests/organism/test_autoevolution.py) ─────────────────
 
 
 def _storage(tmp_path: Path):
+    tmp_path.mkdir(parents=True, exist_ok=True)  # los brazos usan subdirectorios propios
     return StorageFactory.create_facade(
         StorageConfig(
             mode="sqlite",
@@ -129,6 +128,7 @@ def _canon(payload: dict) -> dict:
     Un controller reconstruido acuña su propio `mod-<hex>`; lo que debe coincidir es la
     ESTRUCTURA del lifecycle, no el azar del identificador.
     """
+    payload = dict(payload, lineage_id="L")  # dos brazos = dos organismos; la estructura es lo que se compara
     text = json.dumps(payload, sort_keys=True)
     ids: list[str] = []
     for rec in payload.get("proposals") or []:
@@ -360,6 +360,7 @@ def test_a9_export_restore_roundtrip_es_json_estable(tmp_path):
 # ── A10 · fisiología adoptada: el mando que el lazo escribió viaja con el estado ──
 
 
+@XF_IV
 def test_a10_knobs_adoptados_se_reaplican_en_knobs_frescos(tmp_path):
     # Brazo B con mandos FRESCOS (limit=3) en cada rebuild: el estado debe devolverlos.
     a, _, _ = _correr(False, tmp_path)

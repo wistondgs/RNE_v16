@@ -505,6 +505,17 @@ class ScenarioEpisodeRunner:
         self._dynamic_chain.restore_checkpoint(None)
         return restored
 
+    # ── estado longitudinal de autoevolución (H-046) ─────────────────────────
+    # Espejo de export/restore_neural_state: el controller ρₜ muere con el runner,
+    # su estado no. El kernel lo exporta tras cada paso y lo entrega al runner
+    # siguiente, igual que hace con OrganismState y LineageState.
+
+    def export_autoevolution_state(self) -> Dict[str, Any]:
+        return self._autoevolution.export_state()
+
+    def restore_autoevolution_state(self, payload: Dict[str, Any] | None) -> bool:
+        return self._autoevolution.restore_state(payload)
+
     def build_dynamic_trajectory_window(self, *, size: int = 8):
         """Vista longitudinal cerrada sobre la cadena vital verificada."""
 
