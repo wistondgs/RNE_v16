@@ -33,7 +33,7 @@ import pytest
 from runtime.life import CheckpointManager, LIFE_CHECKPOINT_KIND, LifeKernel, LifeKernelConfig
 from runtime.storage import StorageConfig, StorageFactory
 
-XF = pytest.mark.xfail(strict=True, reason="H-046: el kernel no posee el estado de autoevolución (commit i)")
+# Commit iii retiró las marcas xfail: el kernel posee el estado en los cuatro caminos.
 
 ORGANISM = "organism-ae-continuity"
 SNAP = {
@@ -184,7 +184,6 @@ def test_b7_healthy_run_physiology_digest_is_unchanged_without_rebuild(tmp_path)
 # ── B1 · toda propuesta aplicada termina exactamente una vez ────────────────
 
 
-@XF
 def test_b1_every_applied_proposal_reaches_exactly_one_terminal_outcome(tmp_path):
     storage = _storage(tmp_path)
     kernel = _ExcitedKernel(config=_config(run_id="b1", block_size=1), storage=storage)
@@ -196,21 +195,29 @@ def test_b1_every_applied_proposal_reaches_exactly_one_terminal_outcome(tmp_path
     por_id: Dict[str, int] = {}
     for e in terminal:
         por_id[e.payload["proposal_id"]] = por_id.get(e.payload["proposal_id"], 0) + 1
-    for e in applied:
-        pid = e.payload["proposal_id"]
-        assert por_id.get(pid, 0) == 1, f"{pid}: {por_id.get(pid, 0)} desenlaces terminales (debe ser 1)"
-
-    # Ninguna ventana abandonada: la última propuesta activa, si la hay, sigue viva en el slot.
+    # ∀ applied ∃! outcome — salvo la que sigue VIVA al acabar la corrida: ésa no está
+    # abandonada, su ventana está abierta en el slot. A lo sumo una, y debe ser la activa.
     p = _ae_payload(kernel) or {}
     activa = p.get("active_proposal_id")
-    if activa is not None:
+    sin_desenlace = []
+    for e in applied:
+        pid = e.payload["proposal_id"]
+        n = por_id.get(pid, 0)
+        assert n <= 1, f"{pid}: {n} desenlaces terminales (nunca más de uno)"
+        if n == 0:
+            sin_desenlace.append(pid)
+    assert len(sin_desenlace) <= 1, f"más de una propuesta aplicada sin desenlace: {sin_desenlace}"
+    if sin_desenlace:
+        assert sin_desenlace[0] == activa, (
+            f"{sin_desenlace[0]} fue aplicada y no es la activa ({activa}): ventana ABANDONADA"
+        )
         assert (p.get("post_monitor") or {}).get("proposal_id") == activa
+    assert len([e for e in applied if e.payload["proposal_id"] != activa]) >= 1
 
 
 # ── B2 · dos brazos: estable vs rebuild forzado en los cuatro momentos ───────
 
 
-@XF
 def test_b2_forced_rebuild_arm_matches_stable_arm(tmp_path):
     ka = _ExcitedKernel(config=_config(run_id="b2-a"), storage=_storage(tmp_path, "a"))
     a = _run(ka, 40, _ae_row)
@@ -238,7 +245,6 @@ def test_b2_forced_rebuild_arm_matches_stable_arm(tmp_path):
 # ── B3 · save/load en mitad de una ventana ───────────────────────────────────
 
 
-@XF
 def test_b3_resume_mid_monitor_continues_the_same_lifecycle(tmp_path):
     storage = _storage(tmp_path)
     ka = _ExcitedKernel(config=_config(run_id="b3-before"), storage=storage)
@@ -270,7 +276,6 @@ def test_b3_resume_mid_monitor_continues_the_same_lifecycle(tmp_path):
 # ── B4 · refugio con propuesta activa → ABORT explícito ──────────────────────
 
 
-@XF
 def test_b4_refuge_restore_aborts_the_in_flight_proposal_explicitly(tmp_path):
     storage = _storage(tmp_path)
     kernel = _ExcitedKernel(config=_config(run_id="b4"), storage=storage)
@@ -280,6 +285,16 @@ def test_b4_refuge_restore_aborts_the_in_flight_proposal_explicitly(tmp_path):
             break
     pid = _ae_payload(kernel)["active_proposal_id"]
     assert pid
+
+    # Los checkpoints que ya conocen la propuesta se degradan en disco, para que el
+    # refugio caiga a uno ANTERIOR (mismo mecanismo que test_refuge_exhausted).
+    for art in storage.list_artifacts(run_id="b4", kind=LIFE_CHECKPOINT_KIND, limit=200):
+        path = Path(art.abs_path)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if (payload.get("autoevolution_state") or {}).get("active_proposal_id") == pid:
+            payload["vital_signs"]["viability_margin"] = 0.0
+            payload["vital_signs"]["reversible"] = False
+            path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert kernel._restore_latest_healthy_checkpoint() is True
     assert kernel._runner is None
@@ -292,7 +307,6 @@ def test_b4_refuge_restore_aborts_the_in_flight_proposal_explicitly(tmp_path):
 # ── B5 · los dos caminos de restore rehidratan el mismo slot ─────────────────
 
 
-@XF
 def test_b5_both_restore_paths_rehydrate_the_slot(tmp_path):
     storage = _storage(tmp_path)
     kernel = LifeKernel(config=_config(run_id="b5"), storage=storage)
@@ -309,7 +323,7 @@ def test_b5_both_restore_paths_rehydrate_the_slot(tmp_path):
         "active_proposal_id": None,
         "proposals": [],
     }
-    CheckpointManager(storage).save_checkpoint(
+    CheckpointManager(storage=storage).save_checkpoint(
         run_id="b5",
         organism_id=kernel.organism_id,
         lineage_id=kernel.lineage_id,
@@ -333,7 +347,7 @@ def test_b5_both_restore_paths_rehydrate_the_slot(tmp_path):
     assert kernel._autoevolution_state == conocido
 
     # legacy sin slot → {} en ambos
-    CheckpointManager(storage).save_checkpoint(
+    CheckpointManager(storage=storage).save_checkpoint(
         run_id="b5",
         organism_id=kernel.organism_id,
         lineage_id=kernel.lineage_id,
@@ -354,7 +368,6 @@ def test_b5_both_restore_paths_rehydrate_the_slot(tmp_path):
 # ── B6 · el checkpoint lleva el slot ─────────────────────────────────────────
 
 
-@XF
 def test_b6_checkpoint_payload_carries_the_autoevolution_slot(tmp_path):
     storage = _storage(tmp_path)
     kernel = LifeKernel(config=_config(run_id="b6"), storage=storage)

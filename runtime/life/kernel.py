@@ -146,6 +146,10 @@ class LifeKernel:
         self._scale_state = None
         self._msrc_budget_available = True
         self._neural_state: Dict[str, Any] = {}
+        # H-046: el estado longitudinal del lazo ρₜ es del ORGANISMO, no del runner.
+        # Viaja como _neural_state: se exporta tras cada paso, se entrega al runner
+        # nuevo en _runner_for, va al checkpoint y vuelve por los dos restores.
+        self._autoevolution_state: Dict[str, Any] = {}
         # Sensado de recursos (host + GPU), opt-in por RNFE_HOST_SENSING.
         self._host_sampler = None
         self._vram_sampler = None
@@ -314,6 +318,7 @@ class LifeKernel:
         runner.set_experience_lessons(self._experience_lessons)
         episode_result = runner.run_episode(external_input=input_value)
         self._neural_state = runner.export_neural_state()
+        self._autoevolution_state = runner.export_autoevolution_state()
         self._consecutive_quarantine = 0  # actuó sano ⇒ ya no está atascado
         # Reflexión continua (E2): el maestro reflexiona si el episodio hirió, o cada
         # cierto tiempo — la reflexión es parte de su vida en todo momento. Off hot-path
@@ -799,6 +804,8 @@ class LifeKernel:
             self._scale_state = self._scale_state_from_payload(scale_state)
         neural_state = payload.get("neural_state")
         self._neural_state = dict(neural_state) if isinstance(neural_state, dict) else {}
+        ae_state = payload.get("autoevolution_state")
+        self._autoevolution_state = dict(ae_state) if isinstance(ae_state, dict) else {}
 
     def _genesis(self) -> None:
         # organism_id (genoma) por precedencia: config gana sobre entorno →
@@ -868,6 +875,12 @@ class LifeKernel:
         # None conserva el default del runner (byte-idéntico).
         if memory_retrieval_limit is not None:
             self._runner.memory_retrieval_limit = int(memory_retrieval_limit)
+        # H-046: rehidratar el lazo ρₜ del runner nuevo con el estado del organismo.
+        # Va tras el directive del tier para que lo que el lazo ya decidió tenga la
+        # misma precedencia que en un runner no reconstruido (el directive se fija
+        # una vez al construir; el lazo escribe después). Vacío ⇒ no-op.
+        if self._autoevolution_state:
+            self._runner.restore_autoevolution_state(self._autoevolution_state)
         self._runner_key = key
         return self._runner
 
@@ -912,6 +925,7 @@ class LifeKernel:
             },
             scale_state=self._scale_state.to_dict() if self._scale_state is not None else {},
             neural_state=dict(self._neural_state),
+            autoevolution_state=dict(self._autoevolution_state),
             metadata={"reason": reason},
         )
 
@@ -948,6 +962,28 @@ class LifeKernel:
         self.scenario_episode_index = int(payload.get("scenario_episode_index", 0))
         neural_state = payload.get("neural_state")
         self._neural_state = dict(neural_state) if isinstance(neural_state, dict) else {}
+        # H-046: el refugio descarta la línea temporal viva. Si en ella había una
+        # propuesta APLICADA que el checkpoint restaurado no conoce, no puede
+        # desaparecer sin desenlace: se ABORTA con registro (∀ applied ∃! outcome).
+        # Si el checkpoint restaurado ya la tenía viva, sigue viva — no se toca.
+        ae_state = payload.get("autoevolution_state")
+        restored_ae = dict(ae_state) if isinstance(ae_state, dict) else {}
+        live_pid = (self._autoevolution_state or {}).get("active_proposal_id")
+        if live_pid and restored_ae.get("active_proposal_id") != live_pid:
+            try:
+                self.storage.append_event(
+                    event_type="autoevolution.aborted",
+                    run_id=self.run_id,
+                    source="life_kernel",
+                    payload={
+                        "proposal_id": live_pid,
+                        "reason": "refuge_restore",
+                        "checkpoint_artifact_id": artifact.artifact_id,
+                    },
+                )
+            except Exception:
+                pass  # la telemetría nunca tumba el refugio (misma disciplina que life.refuge.*)
+        self._autoevolution_state = restored_ae
         self._runner = None
         self._runner_key = None
         # B18: el payload del rollback se emite con la FORMA de `contracts/rollback.schema.json`
