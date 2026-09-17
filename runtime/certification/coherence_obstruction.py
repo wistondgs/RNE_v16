@@ -188,9 +188,12 @@ def section_divergence(a: Section, b: Section, morphism: Any = None) -> Dict[str
         raw_dw = 0.5  # mundo no comparable: divergencia neutra, nunca crash
     if morphism is not None:
         overall = _clamp01(_num(getattr(morphism, "overall_score", 0.0)) or 0.0)
-        info_loss = _clamp01(
-            _num(getattr(getattr(morphism, "transport_operator", None), "estimated_information_loss", 1.0)) or 1.0
-        )
+        # Sin `or 1.0`: `_num` devuelve None cuando falta, así que la guarda es
+        # explícita. El `or` convertía una pérdida MEDIDA de 0.0 —transporte
+        # perfecto, sin pérdida— en 1.0, pérdida total. Invierte el dato en el
+        # caso más favorable, que es el que más importa no perder.
+        _il = _num(getattr(getattr(morphism, "transport_operator", None), "estimated_information_loss", None))
+        info_loss = _clamp01(1.0 if _il is None else _il)
         # El mundo solo es comparable en la medida en que el morfismo lo
         # transporta: la incompatibilidad estructural domina la divergencia.
         d_w = _clamp01(overall * raw_dw + (1.0 - overall) * max(info_loss, raw_dw))

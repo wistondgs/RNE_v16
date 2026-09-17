@@ -413,7 +413,12 @@ class OrganismEcology:
             prop_map = dict(getattr(transport, "proposition_map", ()) or ())
             best_iv = prop_map.get(best_iv, best_iv)
             info_loss = float(getattr(transport, "estimated_information_loss", 0.0) or 0.0)
-            overall = float(getattr(morphism, "overall_score", 1.0) or 1.0)
+            # Sin `or 1.0`: un score de morfismo MEDIDO de 0.0 —escenarios sin
+            # nada en común— se leía como 1.0 y la transferencia se certificaba
+            # `transfer_safe` (umbral 0.75). Es la puerta causal de la herencia
+            # de reglas: el `or` la dejaba abierta justo en el caso que debe cerrar.
+            _ov = getattr(morphism, "overall_score", None)
+            overall = 1.0 if _ov is None else float(_ov)
             mclass = getattr(morphism, "morphism_class", None)
             if mclass in {"adversarial", "incompatible"}:
                 return

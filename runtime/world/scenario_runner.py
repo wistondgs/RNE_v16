@@ -1351,7 +1351,14 @@ class ScenarioEpisodeRunner:
 
             cert = certification["certificate"]
             va = episode_result.get("viability_assessment") or {}
-            prev_vm = float(getattr(getattr(previous_state, "viability", None), "viability_margin", va.get("viability_margin", 1.0)) or 1.0)
+            # Sin `or 1.0`: un margen de viabilidad MEDIDO de 0.0 —el organismo
+            # justo en el borde— se leía como 1.0, margen máximo. Y este valor
+            # alimenta el delta que alimenta la severidad del lazo de
+            # experiencia: el momento de más dolor se registraba como el de menos.
+            _pv = getattr(getattr(previous_state, "viability", None), "viability_margin", None)
+            if _pv is None:
+                _pv = va.get("viability_margin")
+            prev_vm = 1.0 if _pv is None else float(_pv)
             vm = float(va.get("viability_margin", prev_vm))
             exp = build_experience(
                 organism_id=self._organism_id,

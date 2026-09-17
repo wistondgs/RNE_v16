@@ -50,7 +50,10 @@ class N1ReferencePolicy:
         observation = inputs.get("observation") or {}
         resources = inputs.get("resources") or {}
         alarm = bool(observation.get("alarm"))
-        uncertainty = float(temporal.get("uncertainty", 1.0) or 1.0)
+        # Sin `or 1.0`: una incertidumbre MEDIDA de 0.0 —certeza perfecta— se
+        # leía como 1.0, incertidumbre total. Invierte el sentido del dato.
+        _u = temporal.get("uncertainty")
+        uncertainty = 1.0 if _u is None else float(_u)
         pressure = max(
             float(resources.get("cpu_pressure", 0.0) or 0.0),
             float(resources.get("memory_pressure", 0.0) or 0.0),
