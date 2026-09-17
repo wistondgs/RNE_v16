@@ -31,9 +31,7 @@ from runtime.organism.state import (
 )
 from runtime.storage import StorageConfig, StorageFactory
 
-# Commit ii retiró la marca xfail del módulo: el controller exporta y restaura.
-# A10 (fisiología adoptada) sigue marcada hasta el commit iv.
-XF_IV = pytest.mark.xfail(strict=True, reason="H-046: los knobs adoptados no se reaplican aún (commit iv)")
+# Sin marcas xfail: el controller exporta, restaura y devuelve los mandos adoptados.
 
 
 # ── helpers (espejo de tests/organism/test_autoevolution.py) ─────────────────
@@ -360,7 +358,6 @@ def test_a9_export_restore_roundtrip_es_json_estable(tmp_path):
 # ── A10 · fisiología adoptada: el mando que el lazo escribió viaja con el estado ──
 
 
-@XF_IV
 def test_a10_knobs_adoptados_se_reaplican_en_knobs_frescos(tmp_path):
     # Brazo B con mandos FRESCOS (limit=3) en cada rebuild: el estado debe devolverlos.
     a, _, _ = _correr(False, tmp_path)

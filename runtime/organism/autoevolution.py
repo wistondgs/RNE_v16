@@ -296,6 +296,12 @@ class AutoEvolutionController:
         self._evidence = None if ev is None else {"n": int(ev["n"]), "ok": int(ev["ok"])}
         ak = payload.get("adopted_knobs")
         self._adopted_knobs = None if ak is None else dict(ak)
+        # Fisiología adoptada: los mandos que ESTE lazo escribió vuelven al runner
+        # nuevo. Sin esto, `ScenarioEpisodeRunner.__init__` los deja en su literal
+        # (3 / config) y una modificación commiteada se esfuma en el siguiente
+        # rebuild. Un runner nuevo debe RECIBIR el mando, no decidirlo (§XVI).
+        if self._adopted_knobs:
+            self.knob_writer(dict(self._adopted_knobs))
         self._active_proposal_id = payload.get("active_proposal_id")
         self._proposals = [ProposalRecord.from_payload(r) for r in (payload.get("proposals") or [])]
         return True
