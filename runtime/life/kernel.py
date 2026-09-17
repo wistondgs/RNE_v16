@@ -72,6 +72,12 @@ class LifeKernelConfig:
     default_external_input: float = 0.04
     perturbation_spike: float = 0.14
     perturbation_period: int = 7
+    #: Familia de perturbación declarada — ver `runtime.world.disturbance`.
+    #: Vacío o "legacy" ⇒ la periódica de siempre, gobernada por los tres campos
+    #: de arriba, byte-idéntica a antes de que este campo existiera. Cualquier
+    #: otro nombre delega en la familia, que declara su variedad y su semilla.
+    disturbance_family: str = "legacy"
+    disturbance_seed: int = 0
     allow_external_reasoner: bool = False
     exploration_interval: int = 16
     enable_msrc: bool = True
@@ -1062,6 +1068,23 @@ class LifeKernel:
         return scenarios[self.scenario_index % len(scenarios)]
 
     def _perturbation(self, step: int) -> float:
+        """Entrada externa del paso.
+
+        Con familia declarada (distinta de "legacy") delega en
+        `runtime.world.disturbance`, que fija la semilla y declara su variedad.
+        Sin declarar, corre la periódica de siempre gobernada por los tres
+        campos de config, byte a byte como antes.
+
+        El import es perezoso a propósito: el kernel no debe arrastrar el
+        catálogo de familias cuando nadie declaró ninguna.
+        """
+        family = (getattr(self.config, "disturbance_family", "") or "").strip()
+        if family and family.lower() != "legacy":
+            from runtime.world.disturbance import resolve
+
+            return resolve(family).at(
+                step, seed=int(getattr(self.config, "disturbance_seed", 0))
+            )
         period = max(1, int(self.config.perturbation_period))
         if step % period == period - 1:
             return float(self.config.perturbation_spike)
