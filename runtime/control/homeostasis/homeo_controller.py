@@ -225,6 +225,15 @@ class HomeoController:
     def shutdown(self):
         self.monitoring_active = False
         self.monitor_thread.join(timeout=5)
-        self.preserver.save_full_state()
+        # `save_full_state` exige el proveedor de snapshot y aquí se llamaba sin
+        # él: la llamada lanzaba TypeError en cada apagado, así que el enfriamiento
+        # de abajo tampoco se ejecutaba y —lo que importa— los umbrales que el
+        # organismo APRENDE (`AdaptiveThreshold.current_value`, ajustado por
+        # estrés en cada ciclo de monitoreo) se perdían enteros en cada reinicio.
+        # `system_snapshot` ya los expone; sólo faltaba pasárselo.
+        try:
+            self.preserver.save_full_state(self.system_snapshot)
+        except Exception as exc:  # un apagado no debe morir por no poder guardar
+            logger.warning("Homeostasis: no se pudo preservar el estado: %s", exc)
         self.governor.initiate_cooling(3.0)
         logger.info("🧊 Homeostasis apagada correctamente.")

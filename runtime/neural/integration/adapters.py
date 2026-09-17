@@ -16,7 +16,8 @@ from runtime.neural.organs.n4_causal import (
     CausalMessagePassingBackend,
     CausalPredictionAdmission,
 )
-from runtime.neural.organs.n5_ingest import DeterministicChunker
+from runtime.neural.organs.n3_temporal import TemporalMemoryAdmission
+from runtime.neural.organs.n5_ingest import DeterministicChunker, HNetBoundaryAdmission
 
 from .contracts import SymbiosisIdentity, canonical_json_bytes
 
@@ -162,7 +163,12 @@ class N3Adapter:
     authority_ceiling = NeuralMode.PROVISIONAL
     consumer = "next_episode+MFM+continuity"
     reference_id = "rnfe:N3:temporal_reference_state:reference-filter-v1"
-    admission_gate = None
+    # Cableada. N3 tiene techo PROVISIONAL desde siempre y su puerta estaba
+    # escrita (`n3_temporal.py:64`) y sin conectar, así que el órgano alcanzaba
+    # el modo con autoridad y nadie le preguntaba a la puerta: salía con
+    # influence=NONE y sin registrar razón. La puerta valida el esquema de
+    # salida y devuelve una propuesta ACOTADA; sin ella el techo no servía.
+    admission_gate = TemporalMemoryAdmission()
 
     def __init__(self) -> None:
         self._states: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -418,7 +424,10 @@ class N5Adapter:
     authority_ceiling = NeuralMode.PROVISIONAL
     consumer = "SMG+MFM"
     reference_id = "rnfe:N5:deterministic_ingestion:chunker-v1"
-    admission_gate = None
+    # Cableada, por la misma razón que N3: techo PROVISIONAL con la puerta
+    # escrita (`n5_ingest.py:280`) y desconectada. Valida el esquema H-Net y la
+    # identidad del texto ingerido antes de dejar pasar nada.
+    admission_gate = HNetBoundaryAdmission()
 
     def __init__(self) -> None:
         self.chunker = DeterministicChunker(max_bytes=256)
