@@ -1,8 +1,8 @@
 {
   "schema_version": "genesis.docs.cartography-manifest/v1",
   "document": "docs/CARTOGRAFIA_GENESIS_01.md",
-  "written_at": "2026-09-17",
-  "head": "364044e",
+  "written_at": "2026-09-18",
+  "head": "1a8f96d",
   "trees": {
     "v16": "/home/wis/Desarrollo/RNE_v16",
     "v15": "/home/wis/dev/rnfe.v15"
@@ -20,27 +20,29 @@
     },
     "II · El lazo de vida y quién es dueño de su estado": {
       "files": {
-        "runtime/life/kernel.py": "1da8db8131b5ccfe5cf6d4268ff9b6cda4452f9a4b6f5fbff8a5f6f24f76366f",
-        "runtime/world/scenario_runner.py": "d0cf469c496da3a0e64c996024419a9005afea28abc1c1bb0b9b8671f804aa62",
+        "runtime/life/kernel.py": "9fce2c43fe0a827f2f7fd352a920ca20f40668fe93225a45b70914893b55caa1",
+        "runtime/world/scenario.py": "52235f9243781a38c0d27e6eb25401736faebcc7a52e5799f95179d1ffe25dc1",
+        "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907",
         "tests/life/test_autoevolution_continuity.py": "fcc39b1399f19a5349149ea8487bbf3454d19464f41af64bbe54c57e7946148f",
-        "tests/life/test_certificate_continuity.py": "8468f248cd7cca670c508ac628fb03570da5cf35cd19a7dfd6d77bf0c43ee0de",
-        "tests/organism/test_autoevolution_state.py": "e8f5b6227a75dbb2759c1b1cc0cdcc9548721d7113e98539fc86638c72acf98c"
+        "tests/life/test_certificate_continuity.py": "9bc4016cfda803f9a97ed02bfd4ce95d81d6ed6a94cb431d5c15c1cc55b526fb",
+        "tests/organism/test_autoevolution_state.py": "e8f5b6227a75dbb2759c1b1cc0cdcc9548721d7113e98539fc86638c72acf98c",
+        "tests/world/test_world_continuity.py": "f21712544a896f9ad30a7094135fb852033a8ef6962f0aa5c23782e919ddc6a7"
       }
     },
     "III · La autoridad de parámetros y el ledger de Λ": {
       "files": {
-        "runtime/life/kernel.py": "1da8db8131b5ccfe5cf6d4268ff9b6cda4452f9a4b6f5fbff8a5f6f24f76366f",
+        "runtime/life/kernel.py": "9fce2c43fe0a827f2f7fd352a920ca20f40668fe93225a45b70914893b55caa1",
         "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",
         "runtime/organism/ecology.py": "2cb38c58fd6d34885d7759410a9a8bbe864a9c0946af6dd4ba3cb5ebc5320bea",
         "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41",
-        "runtime/world/scenario_runner.py": "d0cf469c496da3a0e64c996024419a9005afea28abc1c1bb0b9b8671f804aa62",
+        "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907",
         "tests/life/test_parameter_authority.py": "b07bce5db9218e6518e5cb2e6fa9b772ac0dde771910bb993e7f145fc74bc8d9",
         "tests/life/test_parameter_provenance.py": "8a9757399a67dd4d77bb9fc8fd558be1d8fcf1f3184d507e03a563d9a3f8286a"
       }
     },
     "IV · El régimen de referencia y sus dos umbrales que no son el mismo": {
       "files": {
-        "runtime/life/kernel.py": "1da8db8131b5ccfe5cf6d4268ff9b6cda4452f9a4b6f5fbff8a5f6f24f76366f",
+        "runtime/life/kernel.py": "9fce2c43fe0a827f2f7fd352a920ca20f40668fe93225a45b70914893b55caa1",
         "runtime/life/reference_manifest.py": "4bb422417395906c3739a320adf8f24344a8b0260bb04413cb75fa32b413a5b6",
         "runtime/life/vitals.py": "9c1a5e3c062d959114d95450b0296736bba99ebbf60e6235092e4cc8cc48de39",
         "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",

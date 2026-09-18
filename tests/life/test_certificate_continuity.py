@@ -188,13 +188,13 @@ def test_los_dos_brazos_ven_el_mismo_veredicto_anterior(tmp_path):
     assert sa == sb, f"el signo de Δm difiere:\n  estable={sa}\n  rebuild={sb}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="H-047: el mundo simulado vive en el runner y se reinicia con él; "
-           "|Δm| no puede coincidir entre brazos hasta cerrarlo. NO es R-012.",
-)
 def test_la_magnitud_de_delta_m_tambien_coincide(tmp_path):
-    """La MAGNITUD requiere algo que R-012 no posee, y esto lo deja escrito.
+    """La MAGNITUD requiere algo que R-012 no poseía. Ya lo posee.
+
+    Esta prueba nació como tripwire `xfail(strict)` de H-047 y **disparó**:
+    cerrado el ownership del mundo, pasó, y el `strict` la convirtió en fallo
+    hasta retirar la marca. Es la confirmación más fuerte de la reparación —
+    la escribió quien no podía hacerla pasar.
 
     Reparado R-012, los dos brazos ya coinciden en veredicto y en signo. Siguen
     difiriendo en `|Δm|`, y la causa está medida: `g = clip(1 − |f−cf| + …)` y el

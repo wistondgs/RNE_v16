@@ -150,6 +150,11 @@ class LifeKernel:
         # Viaja como _neural_state: se exporta tras cada paso, se entrega al runner
         # nuevo en _runner_for, va al checkpoint y vuelve por los dos restores.
         self._autoevolution_state: Dict[str, Any] = {}
+        # H-047 · el mundo. RANURA PROPIA, no dentro del estado del organismo:
+        # una campaña causal interviene `do(D)` sobre el mundo y `do(A)` sobre el
+        # organismo por separado, y guardarlos juntos haría imposible mover uno
+        # sin mover el otro.
+        self._world_state: Dict[str, Any] = {}
         # H-048 / §XVII: Λ_t, los valores vigentes de los parámetros adaptativos.
         # Distinto de `self.config`, que es Config₀ (arranque, inmutable). El
         # default sólo aplica mientras esto esté vacío.
@@ -324,6 +329,7 @@ class LifeKernel:
         self._neural_state = runner.export_neural_state()
         self._autoevolution_state = runner.export_autoevolution_state()
         self._parameter_state = runner.export_parameter_state()
+        self._world_state = runner.export_world_state()
         self._consecutive_quarantine = 0  # actuó sano ⇒ ya no está atascado
         # Reflexión continua (E2): el maestro reflexiona si el episodio hirió, o cada
         # cierto tiempo — la reflexión es parte de su vida en todo momento. Off hot-path
@@ -821,6 +827,84 @@ class LifeKernel:
         self._autoevolution_state = dict(ae_state) if isinstance(ae_state, dict) else {}
         par_state = payload.get("parameter_state")
         self._parameter_state = dict(par_state) if isinstance(par_state, dict) else {}
+        # H-047. Un checkpoint anterior a esta reparación no lleva la clave, y
+        # entonces el mundo arranca virgen: es la conducta de antes, no un fallo.
+        world_state = payload.get("world_state")
+        self._world_state = dict(world_state) if isinstance(world_state, dict) else {}
+
+    def _reconcile_restored_proposals(
+        self, restored_ae: Dict[str, Any], *, artifact: Any = None
+    ) -> Dict[str, Any]:
+        """El refugio rebobina el organismo; el ledger no se rebobina.
+
+        Un refugio restaura un estado ANTERIOR del lazo ρₜ, y ese estado puede
+        creer que una propuesta sigue en monitoreo cuando el ledger ya registró
+        su desenlace. Sin reconciliar, la ventana se reabre y vuelve a cerrarse:
+        medido, `mod-24dbd0b9` recibió DOS `autoevolution.committed`, que rompe
+        `∀ p ∈ APPLIED, ∃! outcome`.
+
+        El ledger manda —misma doctrina que R-012: la caché es préstamo, el
+        ledger es la fuente—. Una propuesta que allí ya cerró se adopta cerrada,
+        **sin emitir un segundo evento terminal**, y su ventana de monitoreo se
+        descarta: pertenecía a una trayectoria que el refugio abandonó.
+
+        El descarte no es silencioso. Se emite UN evento que lo nombra, que no es
+        terminal y por tanto no compite con el desenlace que ya existe.
+        """
+        from runtime.organism.autoevolution import TERMINAL_STATUSES
+
+        propuestas = restored_ae.get("proposals") or []
+        if not propuestas:
+            return restored_ae
+
+        try:
+            cerradas: Dict[str, str] = {}
+            for evento in self.storage.list_events(limit=1000, run_id=self.run_id):
+                sufijo = evento.event_type.rsplit(".", 1)[-1]
+                if sufijo in TERMINAL_STATUSES:
+                    pid = (evento.payload or {}).get("proposal_id")
+                    if pid:
+                        cerradas.setdefault(pid, sufijo)
+        except Exception:
+            # Ledger ilegible: se conserva la conducta anterior en vez de tumbar
+            # el refugio. Es el mismo silencio deliberado que `_previous_certification`.
+            return restored_ae
+
+        reconciliadas = []
+        for registro in propuestas:
+            pid = registro.get("proposal_id")
+            if registro.get("status") in TERMINAL_STATUSES or pid not in cerradas:
+                continue
+            desenlace = cerradas[pid]
+            registro["status"] = desenlace
+            registro["outcome_reason"] = "reconciled_with_ledger_after_refuge"
+            registro.setdefault("transitions", []).append(
+                {"status": desenlace, "episode": self.total_steps,
+                 "reason": "reconciled_with_ledger_after_refuge"}
+            )
+            reconciliadas.append({"proposal_id": pid, "outcome": desenlace})
+
+        if restored_ae.get("active_proposal_id") in cerradas:
+            restored_ae["active_proposal_id"] = None
+        monitor = restored_ae.get("post_monitor") or {}
+        if monitor.get("proposal_id") in cerradas:
+            restored_ae["post_monitor"] = None
+
+        if reconciliadas:
+            try:
+                self.storage.append_event(
+                    event_type="autoevolution.window_discarded",
+                    run_id=self.run_id,
+                    source="life_kernel",
+                    payload={
+                        "reason": "refuge_restore_resurrected_closed_proposals",
+                        "reconciled": reconciliadas,
+                        "checkpoint_artifact_id": getattr(artifact, "artifact_id", None),
+                    },
+                )
+            except Exception:
+                pass  # la telemetría nunca tumba el refugio
+        return restored_ae
 
     def _genesis(self) -> None:
         # organism_id (genoma) por precedencia: config gana sobre entorno →
@@ -906,6 +990,12 @@ class LifeKernel:
         # una vez al construir; el lazo escribe después). Vacío ⇒ no-op.
         if self._autoevolution_state:
             self._runner.restore_autoevolution_state(self._autoevolution_state)
+        # H-047: el mundo que el organismo dejó, no uno virgen. Sin esto el
+        # escenario nacía en su estado inicial cada bloque y descartaba lo que el
+        # organismo había hecho — medido: cerraba a 0.98 con alarma y renacía a
+        # 0.82 sin ella. Vacío ⇒ no-op, que es el arranque limpio legítimo.
+        if self._world_state:
+            self._runner.restore_world_state(self._world_state)
         self._runner_key = key
         return self._runner
 
@@ -952,6 +1042,7 @@ class LifeKernel:
             neural_state=dict(self._neural_state),
             autoevolution_state=dict(self._autoevolution_state),
             parameter_state=dict(self._parameter_state),
+            world_state=dict(self._world_state),
             metadata={"reason": reason},
         )
 
@@ -1009,9 +1100,15 @@ class LifeKernel:
                 )
             except Exception:
                 pass  # la telemetría nunca tumba el refugio (misma disciplina que life.refuge.*)
+        restored_ae = self._reconcile_restored_proposals(restored_ae, artifact=artifact)
         self._autoevolution_state = restored_ae
         par_state = payload.get("parameter_state")
         self._parameter_state = dict(par_state) if isinstance(par_state, dict) else {}
+        # El refugio devuelve al organismo a su último yo sano; el mundo del
+        # checkpoint viaja con él. Rodar el organismo y dejar el mundo donde
+        # estaba emparejaría un organismo de antes con un mundo de después.
+        world_state = payload.get("world_state")
+        self._world_state = dict(world_state) if isinstance(world_state, dict) else {}
         self._runner = None
         self._runner_key = None
         # B18: el payload del rollback se emite con la FORMA de `contracts/rollback.schema.json`

@@ -60,6 +60,7 @@ class CheckpointManager:
         neural_state: Dict[str, Any] | None = None,
         autoevolution_state: Dict[str, Any] | None = None,
         parameter_state: Dict[str, Any] | None = None,
+        world_state: Dict[str, Any] | None = None,
         metadata: Dict[str, Any] | None = None,
     ) -> ArtifactRecord:
         checkpoint_id = f"life-ckpt-{uuid4().hex[:12]}"
@@ -93,6 +94,8 @@ class CheckpointManager:
             "autoevolution_state": dict(autoevolution_state or {}),
             # §XVII: Λ_t aparte de Config₀. Slot aditivo; legacy restaura {}.
             "parameter_state": dict(parameter_state or {}),
+            # H-047: el mundo va en su PROPIA clave, no dentro del organismo.
+            "world_state": dict(world_state or {}),
             "metadata": dict(metadata or {}),
         }
         blob = json.dumps(jsonable(payload), ensure_ascii=True, sort_keys=True, indent=2)

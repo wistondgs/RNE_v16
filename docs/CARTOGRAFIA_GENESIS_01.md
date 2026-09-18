@@ -53,7 +53,7 @@ Un cero dentro del alcance equivocado se lee igual que un cero real.
 
 `HECHO DE CÓDIGO` + `HECHO DE TEST`.
 
-**La reconstrucción del runner es estructural, no accidental.** `runtime/life/kernel.py:367`
+**La reconstrucción del runner es estructural, no accidental.** `runtime/life/kernel.py:373`
 pone `self._runner = None` cada `block_size` episodios — 8 por default. No la causa el tier
 ejecutable, que está detrás de un flag apagado.
 
@@ -67,15 +67,30 @@ ahí y ya no:
 | Λ, el estado de hiperparámetros | kernel, checkpoint y los dos restores | `d22dd99` |
 | la fisiología adoptada (los mandos que el lazo escribió) | viaja con el estado de autoevolución | `b4b5094` |
 
-**Lo que sigue muriendo: el mundo.** `self.scenario` se construye en el constructor del
-runner a partir de un **nombre**, así que el mundo vuelve a su estado inicial cada bloque.
-Medido con el `block_size=8` por default: la temperatura observada vuelve a 0.82 en los
-pasos 8 y 16. Es violación de I-05 del Canon 2.1 de Terrario («mundo declarado = mundo
-ejecutado»). **No reparado** — tripwire en `xfail(strict)` en
-`tests/life/test_certificate_continuity.py`.
+**El mundo también viaja ya** (H-047, ola 6). `self.scenario` se sigue construyendo desde
+un **nombre** —eso no cambió— pero su estado ya no muere con el runner:
+`runtime/world/scenario.py` da a la clase base `CognitiveScenario` un
+`export_world_state` / `restore_world_state` que los cuatro escenarios del árbol heredan,
+porque todos guardan su mundo en un único `self._state` que es un dataclass.
+
+Medido antes: el paso 7 cerraba en `0.98 / cooling False / alarm True` y el 8 nacía en
+`0.82 / False / False`. Después: 2 fronteras de bloque, **0 entran con el mundo virgen**,
+continuidad exacta 2/2.
+
+**El invariante no vive en el `__init__`.** El escenario nace virgen y el kernel le entrega
+el mundo justo después, igual que con el estado neural y el del lazo. Lo que I-05 exige es
+que el mundo con el que **entra** el primer episodio del bloque nuevo sea el que dejó el
+anterior; ahí se mide.
+
+**Ranura propia, no dentro del organismo.** El checkpoint tiene cuatro claves de primer
+nivel —`world_state`, `parameter_state`, `autoevolution_state`, `neural_state`— porque una
+campaña causal interviene `do(D)` sobre el mundo y `do(A)` sobre el organismo por separado.
 
 Pruebas: `tests/organism/test_autoevolution_state.py` · `tests/life/test_autoevolution_continuity.py`
-· `tests/life/test_certificate_continuity.py`.
+· `tests/life/test_certificate_continuity.py` · `tests/world/test_world_continuity.py`.
+
+El tripwire `xfail(strict)` que la ola 2 dejó nombrando H-047 **disparó** con `XPASS` al
+cerrarse el ownership del mundo, y se retiró la marca.
 
 ---
 
@@ -135,9 +150,9 @@ runtime/organism/autoevolution.py:478   el trigger del lazo lee el COMPUESTO
 
 R_AE se mide sobre el compuesto. La cuarentena la decide el otro.
 
-**Dos pestillos de la misma familia.** `runtime/life/kernel.py:753` documenta el primero,
+**Dos pestillos de la misma familia.** `runtime/life/kernel.py:759` documenta el primero,
 en la rama de rollback, ya reparado — *«un pestillo del que no se sale. Medido: muerte en
-el paso 32»*. El segundo estaba en la rama de cuarentena, `runtime/life/kernel.py:698`, y
+el paso 32»*. El segundo estaba en la rama de cuarentena, `runtime/life/kernel.py:704`, y
 se reparó hoy: su contador vivía detrás de `self._experience is not None`, que depende de
 `RNFE_EXPERIENCE`, apagada por default.
 

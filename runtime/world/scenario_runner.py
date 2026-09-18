@@ -638,6 +638,18 @@ class ScenarioEpisodeRunner:
     # su estado no. El kernel lo exporta tras cada paso y lo entrega al runner
     # siguiente, igual que hace con OrganismState y LineageState.
 
+    def export_world_state(self) -> Dict[str, Any]:
+        """El mundo, para que el kernel lo lleve entre reconstrucciones (H-047).
+
+        Ranura propia, separada del estado del organismo. El mundo no es el
+        organismo: una campaña causal necesita intervenir `do(D)` sobre uno y
+        `do(A)` sobre el otro por separado, y guardarlos juntos lo impediría.
+        """
+        return self.scenario.export_world_state()
+
+    def restore_world_state(self, payload: Dict[str, Any] | None) -> bool:
+        return self.scenario.restore_world_state(payload)
+
     def export_autoevolution_state(self) -> Dict[str, Any]:
         return self._autoevolution.export_state()
 
