@@ -53,7 +53,7 @@ Un cero dentro del alcance equivocado se lee igual que un cero real.
 
 `HECHO DE CÓDIGO` + `HECHO DE TEST`.
 
-**La reconstrucción del runner es estructural, no accidental.** `runtime/life/kernel.py:373`
+**La reconstrucción del runner es estructural, no accidental.** `runtime/life/kernel.py:382`
 pone `self._runner = None` cada `block_size` episodios — 8 por default. No la causa el tier
 ejecutable, que está detrás de un flag apagado.
 
@@ -86,8 +86,18 @@ anterior; ahí se mide.
 nivel —`world_state`, `parameter_state`, `autoevolution_state`, `neural_state`— porque una
 campaña causal interviene `do(D)` sobre el mundo y `do(A)` sobre el organismo por separado.
 
+**Y un mundo POR ESCENARIO** (H-051). `world_state` es un **mapa nombre→mundo**, no un
+payload suelto. Con `config.scenarios` de más de uno el kernel rota entre ellos cada bloque,
+y una sola ranura le empujaba al escenario entrante el mundo del saliente — la comprobación
+estricta lo cazó (`world_state_scenario_mismatch`) en vez de cargar campos que significan
+otra cosa. Un checkpoint escrito entre H-047 y H-051 lleva el formato plano y se **migra**
+envolviéndolo en su entrada, porque descartarlo devolvería al organismo a un mundo virgen.
+
+Medido: 24 pasos con dos escenarios visitan 9 episodios cada uno, el kernel guarda los dos
+mundos y los dos vuelven del checkpoint. Prueba: `tests/world/test_world_multiscenario.py`.
+
 Pruebas: `tests/organism/test_autoevolution_state.py` · `tests/life/test_autoevolution_continuity.py`
-· `tests/life/test_certificate_continuity.py` · `tests/world/test_world_continuity.py`.
+· `tests/life/test_certificate_continuity.py` · `tests/world/test_world_continuity.py` · `tests/world/test_world_multiscenario.py`.
 
 El tripwire `xfail(strict)` que la ola 2 dejó nombrando H-047 **disparó** con `XPASS` al
 cerrarse el ownership del mundo, y se retiró la marca.
@@ -159,9 +169,9 @@ runtime/organism/autoevolution.py:478   el trigger del lazo lee el COMPUESTO
 
 R_AE se mide sobre el compuesto. La cuarentena la decide el otro.
 
-**Dos pestillos de la misma familia.** `runtime/life/kernel.py:759` documenta el primero,
+**Dos pestillos de la misma familia.** `runtime/life/kernel.py:768` documenta el primero,
 en la rama de rollback, ya reparado — *«un pestillo del que no se sale. Medido: muerte en
-el paso 32»*. El segundo estaba en la rama de cuarentena, `runtime/life/kernel.py:704`, y
+el paso 32»*. El segundo estaba en la rama de cuarentena, `runtime/life/kernel.py:713`, y
 se reparó hoy: su contador vivía detrás de `self._experience is not None`, que depende de
 `RNFE_EXPERIENCE`, apagada por default.
 

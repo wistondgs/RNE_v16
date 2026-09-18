@@ -2,7 +2,7 @@
   "schema_version": "genesis.docs.cartography-manifest/v1",
   "document": "docs/CARTOGRAFIA_GENESIS_01.md",
   "written_at": "2026-09-18",
-  "head": "7dc8907",
+  "head": "51c24d7",
   "trees": {
     "v16": "/home/wis/Desarrollo/RNE_v16",
     "v15": "/home/wis/dev/rnfe.v15"
@@ -20,18 +20,19 @@
     },
     "II · El lazo de vida y quién es dueño de su estado": {
       "files": {
-        "runtime/life/kernel.py": "476ae3fc431079639fd0a93c44b63a4ff2ee8d6a99167f3cd34dd65f1ac6b682",
+        "runtime/life/kernel.py": "4bf2790bbd033572599835a4d9c865790d68597de5b7499641a4acd22735df77",
         "runtime/world/scenario.py": "52235f9243781a38c0d27e6eb25401736faebcc7a52e5799f95179d1ffe25dc1",
         "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907",
         "tests/life/test_autoevolution_continuity.py": "fcc39b1399f19a5349149ea8487bbf3454d19464f41af64bbe54c57e7946148f",
         "tests/life/test_certificate_continuity.py": "9bc4016cfda803f9a97ed02bfd4ce95d81d6ed6a94cb431d5c15c1cc55b526fb",
         "tests/organism/test_autoevolution_state.py": "e8f5b6227a75dbb2759c1b1cc0cdcc9548721d7113e98539fc86638c72acf98c",
-        "tests/world/test_world_continuity.py": "f21712544a896f9ad30a7094135fb852033a8ef6962f0aa5c23782e919ddc6a7"
+        "tests/world/test_world_continuity.py": "f5d4ffa8ed44140e87b825c6aa3a06b6cd74b816cb35aac4755df2ead816e92b",
+        "tests/world/test_world_multiscenario.py": "01b62e092011943dbb6ce4dbbabbd968fc60252649ae5aa79379427d57c2e8c3"
       }
     },
     "III · La autoridad de parámetros y el ledger de Λ": {
       "files": {
-        "runtime/life/kernel.py": "476ae3fc431079639fd0a93c44b63a4ff2ee8d6a99167f3cd34dd65f1ac6b682",
+        "runtime/life/kernel.py": "4bf2790bbd033572599835a4d9c865790d68597de5b7499641a4acd22735df77",
         "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",
         "runtime/organism/ecology.py": "2cb38c58fd6d34885d7759410a9a8bbe864a9c0946af6dd4ba3cb5ebc5320bea",
         "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41",
@@ -42,7 +43,7 @@
     },
     "IV · El régimen de referencia y sus dos umbrales que no son el mismo": {
       "files": {
-        "runtime/life/kernel.py": "476ae3fc431079639fd0a93c44b63a4ff2ee8d6a99167f3cd34dd65f1ac6b682",
+        "runtime/life/kernel.py": "4bf2790bbd033572599835a4d9c865790d68597de5b7499641a4acd22735df77",
         "runtime/life/reference_manifest.py": "4bb422417395906c3739a320adf8f24344a8b0260bb04413cb75fa32b413a5b6",
         "runtime/life/vitals.py": "9c1a5e3c062d959114d95450b0296736bba99ebbf60e6235092e4cc8cc48de39",
         "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",
