@@ -241,3 +241,53 @@ def test_el_default_solo_aplica_sin_estado_previo(tmp_path):
         assert kernel._runner.memory_retrieval_limit == 2, (
             "el parámetro volvió al default en una reconstrucción posterior al arranque"
         )
+
+
+# ── §XII · intención → autoridad → veredicto auditable ──────────────────────
+
+
+def test_toda_fuente_pasa_por_la_misma_autoridad_con_procedencia(tmp_path):
+    """El tier, la autoevolución y la ecología producen INTENCIONES, no escrituras.
+
+    La autoridad devuelve un veredicto con procedencia y el antes/después de
+    cada parámetro tocado, así que una mutación se puede auditar sin inferirla
+    de logs dispersos (§XLII).
+    """
+    kernel = LifeKernel(config=_config(run_id="intent"), storage=_storage(tmp_path, "intent"))
+    kernel.step()
+    runner = kernel._runner
+
+    v = runner.apply_parameter_intent(
+        {"memory_retrieval_limit": 5}, source="execution_tier", reason="punto de operación"
+    )
+    assert v["outcome"] == "accepted"
+    assert v["source"] == "execution_tier" and v["reason"] == "punto de operación"
+    assert v["changes"] == {"memory_retrieval_limit": {"old": 3, "new": 5}}
+    assert runner.memory_retrieval_limit == 5
+
+    # Pedir lo ya vigente no es una mutación.
+    assert runner.apply_parameter_intent(
+        {"memory_retrieval_limit": 5}, source="ecology"
+    )["outcome"] == "no_op"
+
+
+def test_una_intencion_invalida_no_deja_nada_a_medias(tmp_path):
+    """§XVIII, §LVIII — validar TODO antes de aplicar NADA."""
+    kernel = LifeKernel(config=_config(run_id="atomic"), storage=_storage(tmp_path, "atomic"))
+    kernel.step()
+    runner = kernel._runner
+    antes = (runner.memory_retrieval_limit, runner.memory_filter_mode)
+
+    v = runner.apply_parameter_intent(
+        {"memory_retrieval_limit": 7, "memory_filter_mode": "inventado"},
+        source="experiment",
+    )
+    assert v["outcome"] == "rejected" and "PARAMETER_OUT_OF_DOMAIN" in v["error"]
+    assert (runner.memory_retrieval_limit, runner.memory_filter_mode) == antes, (
+        "el primer parámetro se aplicó y el segundo no: transacción rota"
+    )
+
+    # Y el mínimo del dominio se rechaza en vez de recortarse en silencio.
+    v = runner.apply_parameter_intent({"memory_retrieval_limit": 0}, source="experiment")
+    assert v["outcome"] == "rejected"
+    assert runner.memory_retrieval_limit == antes[0]

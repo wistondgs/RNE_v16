@@ -349,26 +349,50 @@ class ScenarioEpisodeRunner:
         candidate = sim_cache.get(decision.to_intervention) if decision.fired else None
         return decision, candidate
 
-    def _apply_knob_changes(self, changes: Dict[str, Any]) -> None:
-        """Única autoridad de mutación de los parámetros adaptativos (§CIV).
+    def apply_parameter_intent(
+        self, requested: Dict[str, Any], *, source: str, reason: str = ""
+    ) -> Dict[str, Any]:
+        """Única autoridad de MATERIALIZACIÓN de los parámetros adaptativos (§CIV).
 
-        Transaccional (§XVIII): se valida el conjunto ENTERO contra el registro
-        antes de escribir nada. Si algo no pasa, Λ_{t+1} = Λ_t y no queda medio
-        aplicado. Antes eran dos `if` secuenciales que recortaban en silencio
-        (`max(1, …)`) y descartaban un modo inválido sin decirlo.
+        Varias capas pueden producir intenciones —la autoevolución propone, el
+        tier pide un punto de operación, la ecología expresa un genoma, un
+        experimento interviene— pero sólo esto las escribe, y sólo tras validar
+        el conjunto ENTERO contra el registro (§XVIII). Si algo no pasa,
+        Λ_{t+1} = Λ_t: nunca medio aplicado.
+
+        Devuelve un veredicto auditable (§XII): `accepted` | `rejected` |
+        `no_op`, con el antes y el después de cada parámetro tocado.
         """
-        pedidos = {k: v for k, v in changes.items() if k in parameters.ADAPTIVE_PARAMETERS}
+        pedidos = {k: v for k, v in requested.items() if k in parameters.ADAPTIVE_PARAMETERS}
+        veredicto: Dict[str, Any] = {
+            "source": source, "reason": reason,
+            "requested": dict(requested), "outcome": "no_op", "changes": {},
+        }
         if not pedidos:
-            return
+            return veredicto
         try:
             validados = parameters.validate_all(pedidos)
-        except (ValueError, KeyError):
-            return  # propuesta fuera de dominio: no se aplica NADA
+        except (ValueError, KeyError) as exc:
+            veredicto.update(outcome="rejected", error=str(exc))
+            return veredicto
+
+        antes = {k: self._parameters.get(k) for k in validados}
+        if all(antes[k] == v for k, v in validados.items()):
+            return veredicto  # ya vigente: no es una mutación
         self._parameters.update(validados)
         if "memory_retrieval_limit" in validados:
             self.memory_retrieval_limit = int(validados["memory_retrieval_limit"])
         if "memory_filter_mode" in validados:
             self.memory_filter_mode = validados["memory_filter_mode"]
+        veredicto.update(
+            outcome="accepted",
+            changes={k: {"old": antes[k], "new": v} for k, v in validados.items()},
+        )
+        return veredicto
+
+    def _apply_knob_changes(self, changes: Dict[str, Any]) -> None:
+        """`knob_writer` del lazo ρₜ: una intención más, con su procedencia."""
+        self.apply_parameter_intent(changes, source="autoevolution", reason="rho_t knob change")
 
     # ── Λ_t: el valor vigente pertenece al organismo (§XVII) ─────────────────
 

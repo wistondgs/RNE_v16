@@ -880,10 +880,18 @@ class LifeKernel:
         self._runner.set_organism_id(self.organism_id)
         if self._neural_state:
             self._runner.restore_neural_state(self._neural_state)
-        # El tier ejecutable (B3) puede fijar el límite de recuperación de memoria;
-        # None conserva el default del runner (byte-idéntico).
+        # El tier ejecutable (B3) pide un punto de operación para la memoria.
+        # §XXXVIII: deja de ser un writer lateral y pasa por la única autoridad
+        # de materialización, con su procedencia. La conducta se preserva —el
+        # tier sigue obteniendo el valor que pide— pero ahora queda auditable
+        # quién lo pidió, y la validación es la misma para todas las fuentes.
+        # None conserva Λ_t (byte-idéntico con el flag de routing apagado).
         if memory_retrieval_limit is not None:
-            self._runner.memory_retrieval_limit = int(memory_retrieval_limit)
+            self._runner.apply_parameter_intent(
+                {"memory_retrieval_limit": memory_retrieval_limit},
+                source="execution_tier",
+                reason="requested operating point",
+            )
         # H-046: rehidratar el lazo ρₜ del runner nuevo con el estado del organismo.
         # Va tras el directive del tier para que lo que el lazo ya decidió tenga la
         # misma precedencia que en un runner no reconstruido (el directive se fija

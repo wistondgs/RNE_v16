@@ -173,7 +173,15 @@ class OrganismEcology:
             lineage=member.lineage,
             reward_guided=member.selector,
         )
-        runner.memory_retrieval_limit = int(member.knobs.get("memory_retrieval_limit", 3))
+        # §XXXVIII: el genoma del miembro es una intención, no una escritura
+        # lateral. La ecología construye su propio runner, así que no toca el
+        # organismo del kernel, pero pasa por la misma autoridad y la misma
+        # validación que las demás fuentes.
+        runner.apply_parameter_intent(
+            {"memory_retrieval_limit": member.knobs.get("memory_retrieval_limit", 3)},
+            source="ecology",
+            reason=f"genoma del miembro {member.member_id}" if hasattr(member, "member_id") else "genoma del miembro",
+        )
         if self.transfer_mode == TransferMode.REASONING_POLICY_PLUS_RULES and member.inherited_rules:
             runner._inherited_rules = list(member.inherited_rules)
 
