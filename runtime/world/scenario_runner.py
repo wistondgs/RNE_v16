@@ -183,6 +183,11 @@ class ScenarioEpisodeRunner:
         from runtime.organism.experience import ExperienceStore, experience_enabled
 
         self._organism_id: str = mint_organism_id()
+        # Episodio en curso, para anclar el ledger de mutaciones (§XLII). Nace en
+        # None a propósito: el tier y la ecología escriben ANTES del primer
+        # episodio de este runner y deben quedar registradas sin episodio, no con
+        # el de otro. Sólo `run_episode` lo puebla.
+        self._current_episode_id: str | None = None
         # Linaje standalone (solo si no llega uno del kernel): un único lineage_id
         # compartido entre el estado de génesis y el LineageState, vía la SSOT.
         _standalone_lineage_id = mint_lineage_id()
@@ -350,7 +355,13 @@ class ScenarioEpisodeRunner:
         return decision, candidate
 
     def apply_parameter_intent(
-        self, requested: Dict[str, Any], *, source: str, reason: str = ""
+        self,
+        requested: Dict[str, Any],
+        *,
+        source: str,
+        reason: str = "",
+        proposal_id: str | None = None,
+        episode_id: str | None = None,
     ) -> Dict[str, Any]:
         """Única autoridad de MATERIALIZACIÓN de los parámetros adaptativos (§CIV).
 
@@ -364,9 +375,11 @@ class ScenarioEpisodeRunner:
         `no_op`, con el antes y el después de cada parámetro tocado.
         """
         pedidos = {k: v for k, v in requested.items() if k in parameters.ADAPTIVE_PARAMETERS}
+        hash_antes = parameters.state_hash(self._parameters)
         veredicto: Dict[str, Any] = {
-            "source": source, "reason": reason,
+            "source": source, "reason": reason, "proposal_id": proposal_id,
             "requested": dict(requested), "outcome": "no_op", "changes": {},
+            "hash_before": hash_antes, "hash_after": hash_antes,
         }
         if not pedidos:
             return veredicto
@@ -374,25 +387,76 @@ class ScenarioEpisodeRunner:
             validados = parameters.validate_all(pedidos)
         except (ValueError, KeyError) as exc:
             veredicto.update(outcome="rejected", error=str(exc))
+            self._emit_parameter_mutation(veredicto, episode_id=episode_id)
             return veredicto
 
         antes = {k: self._parameters.get(k) for k in validados}
         if all(antes[k] == v for k, v in validados.items()):
-            return veredicto  # ya vigente: no es una mutación
+            return veredicto  # ya vigente: no es una mutación, no se registra
         self._parameters.update(validados)
         if "memory_retrieval_limit" in validados:
             self.memory_retrieval_limit = int(validados["memory_retrieval_limit"])
         if "memory_filter_mode" in validados:
             self.memory_filter_mode = validados["memory_filter_mode"]
+        # `changes` lleva sólo lo que DE VERDAD cambió. La transacción sigue
+        # siendo el conjunto entero —eso es §XVIII— pero un revert que reescribe
+        # el backup completo tocaba dos parámetros y movía uno: registrar el
+        # otro como mutación haría mentir a las métricas de §XCVIII.
         veredicto.update(
             outcome="accepted",
-            changes={k: {"old": antes[k], "new": v} for k, v in validados.items()},
+            changes={
+                k: {"old": antes[k], "new": v}
+                for k, v in validados.items()
+                if antes[k] != v
+            },
+            hash_after=parameters.state_hash(self._parameters),
         )
+        self._emit_parameter_mutation(veredicto, episode_id=episode_id)
         return veredicto
 
-    def _apply_knob_changes(self, changes: Dict[str, Any]) -> None:
-        """`knob_writer` del lazo ρₜ: una intención más, con su procedencia."""
-        self.apply_parameter_intent(changes, source="autoevolution", reason="rho_t knob change")
+    def _emit_parameter_mutation(
+        self, veredicto: Dict[str, Any], *, episode_id: str | None = None
+    ) -> None:
+        """Ledger de mutaciones de Λ (§XLII, §XLIII).
+
+        Sin esto, `Λ₀ → Λ₁ → Λ₂ …` no se puede reconstruir después: se sabría el
+        valor final y no el porqué de cada transición. Cada registro lleva quién
+        lo pidió, con qué razón, el antes y el después de cada parámetro y las
+        huellas de Λ a ambos lados. Los timestamps van como metadata del evento,
+        no dentro del hash — §XLII los deja fuera para no romper reproducibilidad.
+        """
+        if self.storage is None:
+            return
+        try:
+            self.storage.append_event(
+                event_type="parameter.mutation",
+                run_id=self.run_id,
+                source="parameter_authority",
+                payload={
+                **veredicto,
+                "episode_id": episode_id or self._current_episode_id,
+                "organism_id": self._organism_id,
+            },
+            )
+        except Exception:
+            pass  # la auditoría nunca debe tumbar un episodio (igual que AutoEvolutionController._emit)
+
+    def _apply_knob_changes(
+        self, changes: Dict[str, Any], context: Dict[str, Any] | None = None
+    ) -> None:
+        """`knob_writer` del lazo ρₜ: una intención más, con su procedencia.
+
+        `context` lo pone el controlador y dice de QUÉ acción viene la escritura
+        —aplicar, revertir, rodar, rehidratar— y a qué propuesta pertenece. Sin
+        eso, un revert y una aplicación serían indistinguibles en el ledger.
+        """
+        ctx = context or {}
+        self.apply_parameter_intent(
+            changes,
+            source=ctx.get("source", "autoevolution"),
+            reason=ctx.get("reason", "rho_t knob change"),
+            proposal_id=ctx.get("proposal_id"),
+        )
 
     # ── Λ_t: el valor vigente pertenece al organismo (§XVII) ─────────────────
 
@@ -905,6 +969,7 @@ class ScenarioEpisodeRunner:
             Dict con episodio, smg_snapshot, reasoning, artifact, certification.
         """
         episode_id = f"episode-{uuid4()}"
+        self._current_episode_id = episode_id
         scenario_metadata = self._build_scenario_metadata()
 
         # 1. Observar escenario

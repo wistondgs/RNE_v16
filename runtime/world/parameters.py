@@ -23,6 +23,8 @@ cada reconstrucción del consumidor. Por eso el contrato distingue `default`
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
@@ -197,6 +199,16 @@ def validate_all(values: Mapping[str, Any]) -> Dict[str, Any]:
     for name, value in values.items():
         out[contract(name).canonical_name] = contract(name).validate(value)
     return out
+
+
+def state_hash(values: Mapping[str, Any]) -> str:
+    """Huella determinista de Λ. Sin timestamps: §XLII los deja fuera del hash.
+
+    Con esto, «el rollback dejó Λ exactamente como estaba» se demuestra con una
+    comparación en vez de campo a campo (§LXIII).
+    """
+    canonico = json.dumps({k: values[k] for k in sorted(values)}, sort_keys=True)
+    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()[:16]
 
 
 def state_payload(values: Mapping[str, Any]) -> Dict[str, Any]:
