@@ -225,7 +225,9 @@ def test_el_mundo_y_el_organismo_viajan_en_ranuras_distintas(tmp_path):
         kernel.step()
 
     assert kernel._world_state, "el kernel no es dueño del estado del mundo"
-    assert kernel._world_state.get("scenario_name") == "thermal_homeostasis"
+    # H-051: el kernel guarda un mundo POR ESCENARIO, indexado por nombre.
+    assert set(kernel._world_state) == {"thermal_homeostasis"}
+    assert kernel._world_state["thermal_homeostasis"]["scenario_name"] == "thermal_homeostasis"
 
     manager = CheckpointManager(storage=kernel.storage)
     cargado = manager.load_latest_payload(run_id="ranuras")
@@ -235,7 +237,7 @@ def test_el_mundo_y_el_organismo_viajan_en_ranuras_distintas(tmp_path):
     # Cuatro ranuras de primer nivel, cada una con su dueño.
     for clave in ("world_state", "parameter_state", "autoevolution_state", "neural_state"):
         assert clave in payload, f"el checkpoint no lleva la ranura {clave!r}"
-    assert payload["world_state"].get("scenario_name") == "thermal_homeostasis"
+    assert set(payload["world_state"]) == {"thermal_homeostasis"}
     # Y el mundo NO está anidado dentro de las otras tres.
     for clave in ("parameter_state", "autoevolution_state", "neural_state"):
         assert "scenario_name" not in (payload[clave] or {}), (

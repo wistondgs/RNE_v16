@@ -154,6 +154,13 @@ class LifeKernel:
         # una campaña causal interviene `do(D)` sobre el mundo y `do(A)` sobre el
         # organismo por separado, y guardarlos juntos haría imposible mover uno
         # sin mover el otro.
+        #
+        # H-051 · UN MUNDO POR ESCENARIO, indexado por nombre. Con `scenarios` de
+        # más de uno el kernel rota entre ellos, y una sola ranura le empujaba al
+        # escenario nuevo el mundo del anterior. La comprobación estricta lo cazó
+        # —`world_state_scenario_mismatch`— en vez de cargar campos que
+        # significan otra cosa. Un organismo que alterna entre mundos tiene una
+        # historia POR MUNDO.
         self._world_state: Dict[str, Any] = {}
         # H-048 / §XVII: Λ_t, los valores vigentes de los parámetros adaptativos.
         # Distinto de `self.config`, que es Config₀ (arranque, inmutable). El
@@ -329,7 +336,9 @@ class LifeKernel:
         self._neural_state = runner.export_neural_state()
         self._autoevolution_state = runner.export_autoevolution_state()
         self._parameter_state = runner.export_parameter_state()
-        self._world_state = runner.export_world_state()
+        mundo = runner.export_world_state()
+        if mundo.get("scenario_name"):
+            self._world_state[mundo["scenario_name"]] = mundo
         self._consecutive_quarantine = 0  # actuó sano ⇒ ya no está atascado
         # Reflexión continua (E2): el maestro reflexiona si el episodio hirió, o cada
         # cierto tiempo — la reflexión es parte de su vida en todo momento. Off hot-path
@@ -829,8 +838,23 @@ class LifeKernel:
         self._parameter_state = dict(par_state) if isinstance(par_state, dict) else {}
         # H-047. Un checkpoint anterior a esta reparación no lleva la clave, y
         # entonces el mundo arranca virgen: es la conducta de antes, no un fallo.
-        world_state = payload.get("world_state")
-        self._world_state = dict(world_state) if isinstance(world_state, dict) else {}
+        self._world_state = self._world_map_from_payload(payload.get("world_state"))
+
+    @staticmethod
+    def _world_map_from_payload(world_state: Any) -> Dict[str, Any]:
+        """Mapa escenario→mundo, migrando el formato plano anterior a H-051.
+
+        Un checkpoint escrito entre H-047 y H-051 lleva UN mundo suelto con su
+        `scenario_name` dentro. Se envuelve en su propia entrada en vez de
+        descartarse: perderlo devolvería al organismo a un mundo virgen, que es
+        justo lo que H-047 reparó.
+        """
+        if not isinstance(world_state, dict) or not world_state:
+            return {}
+        if world_state.get("schema_version"):          # formato plano, pre-H-051
+            nombre = world_state.get("scenario_name")
+            return {nombre: dict(world_state)} if nombre else {}
+        return {k: dict(v) for k, v in world_state.items() if isinstance(v, dict)}
 
     def _reconcile_restored_proposals(
         self, restored_ae: Dict[str, Any], *, artifact: Any = None
@@ -994,8 +1018,9 @@ class LifeKernel:
         # escenario nacía en su estado inicial cada bloque y descartaba lo que el
         # organismo había hecho — medido: cerraba a 0.98 con alarma y renacía a
         # 0.82 sin ella. Vacío ⇒ no-op, que es el arranque limpio legítimo.
-        if self._world_state:
-            self._runner.restore_world_state(self._world_state)
+        mundo_guardado = self._world_state.get(self._runner.scenario.config.name)
+        if mundo_guardado:
+            self._runner.restore_world_state(mundo_guardado)
         self._runner_key = key
         return self._runner
 
@@ -1107,8 +1132,7 @@ class LifeKernel:
         # El refugio devuelve al organismo a su último yo sano; el mundo del
         # checkpoint viaja con él. Rodar el organismo y dejar el mundo donde
         # estaba emparejaría un organismo de antes con un mundo de después.
-        world_state = payload.get("world_state")
-        self._world_state = dict(world_state) if isinstance(world_state, dict) else {}
+        self._world_state = self._world_map_from_payload(payload.get("world_state"))
         self._runner = None
         self._runner_key = None
         # B18: el payload del rollback se emite con la FORMA de `contracts/rollback.schema.json`
