@@ -10,6 +10,7 @@ from typing import Any, Dict, Mapping
 from uuid import uuid4
 
 from runtime.certification.promotion_gate import PromotionGate
+from runtime.world import parameters
 from runtime.certification.transfer_assessment import retrieval_metrics_from_hits
 from runtime.lotf import LOTFMin
 from runtime.memory.mfm_lite.retrieval import MemoryRetrieval
@@ -89,6 +90,7 @@ class ScenarioEpisodeRunner:
         reward_guided=None,
         retention_signal: str = "ioc",
         trajectory_reward: str = "none",
+        parameter_state: Dict[str, Any] | None = None,
     ):
         """Inicializa runner con escenario especificado.
 
@@ -109,7 +111,18 @@ class ScenarioEpisodeRunner:
                 RETENTION_SIGNALS en runtime/organism/autoevolution.py.
             trajectory_reward: de dónde saca el trayecto del organismo su señal
                 de éxito ('none' | 'previous_certificate'). Ver el bloque 12c.
+            parameter_state: Λ_t, los valores vigentes de los parámetros
+                adaptativos. Un runner nuevo debe RECIBIRLOS, no decidirlos
+                (§XVI): el default sólo se aplica cuando no hay estado previo.
         """
+        # H-048: medido, el constructor fijaba el default en CADA reconstrucción
+        # —20 veces en 20 pasos con bloque 1— y el valor vigente sólo volvía
+        # porque la ola 1 lo reaplicaba desde `adopted_knobs`. Un valor de
+        # cualquier otra procedencia (tier, ecología, intervención `do(U)`) se
+        # perdía. Ahora Λ_t entra por aquí y el default es sólo el bootstrap.
+        self._parameters: Dict[str, Any] = dict(
+            parameters.state_from_payload(parameter_state) or parameters.bootstrap_state()
+        )
         if trajectory_reward not in ("none", "previous_certificate"):
             raise ValueError(
                 f"TRAJECTORY_REWARD_UNKNOWN: {trajectory_reward!r}; "
@@ -133,6 +146,10 @@ class ScenarioEpisodeRunner:
             self._trajectory_regime_label = self.scenario.config.name
 
         # Normalize memory filter mode alias
+        if parameter_state:
+            # Λ_t manda sobre el argumento: el argumento es el default del
+            # llamador, y un default no pisa un valor vigente (§CII).
+            memory_filter_mode = self._parameters["memory_filter_mode"]
         if memory_filter_mode == "analogical":
             memory_filter_mode = "cross_scenario_analogical"
         _VALID_MEMORY_MODES = {"strict_same_scenario", "cross_scenario_analogical"}
@@ -212,7 +229,7 @@ class ScenarioEpisodeRunner:
         # Los mandos (knobs) son parámetros de comportamiento REALES del runner;
         # el controlador solo actúa bajo degradación sostenida, así que los
         # baselines sanos quedan numéricamente intactos.
-        self.memory_retrieval_limit = 3
+        self.memory_retrieval_limit = int(self._parameters["memory_retrieval_limit"])
         if lineage is not None:
             self._lineage = lineage
         else:
@@ -333,13 +350,36 @@ class ScenarioEpisodeRunner:
         return decision, candidate
 
     def _apply_knob_changes(self, changes: Dict[str, Any]) -> None:
-        """Aplica una modificación aceptada sobre los mandos reales del runner."""
-        if "memory_retrieval_limit" in changes:
-            self.memory_retrieval_limit = max(1, int(changes["memory_retrieval_limit"]))
-        if "memory_filter_mode" in changes:
-            mode = str(changes["memory_filter_mode"])
-            if mode in {"strict_same_scenario", "cross_scenario_analogical"}:
-                self.memory_filter_mode = mode
+        """Única autoridad de mutación de los parámetros adaptativos (§CIV).
+
+        Transaccional (§XVIII): se valida el conjunto ENTERO contra el registro
+        antes de escribir nada. Si algo no pasa, Λ_{t+1} = Λ_t y no queda medio
+        aplicado. Antes eran dos `if` secuenciales que recortaban en silencio
+        (`max(1, …)`) y descartaban un modo inválido sin decirlo.
+        """
+        pedidos = {k: v for k, v in changes.items() if k in parameters.ADAPTIVE_PARAMETERS}
+        if not pedidos:
+            return
+        try:
+            validados = parameters.validate_all(pedidos)
+        except (ValueError, KeyError):
+            return  # propuesta fuera de dominio: no se aplica NADA
+        self._parameters.update(validados)
+        if "memory_retrieval_limit" in validados:
+            self.memory_retrieval_limit = int(validados["memory_retrieval_limit"])
+        if "memory_filter_mode" in validados:
+            self.memory_filter_mode = validados["memory_filter_mode"]
+
+    # ── Λ_t: el valor vigente pertenece al organismo (§XVII) ─────────────────
+
+    def export_parameter_state(self) -> Dict[str, Any]:
+        """Λ_t, para que el kernel lo lleve al runner siguiente y al checkpoint."""
+        return parameters.state_payload(
+            {
+                "memory_retrieval_limit": int(self.memory_retrieval_limit),
+                "memory_filter_mode": self.memory_filter_mode,
+            }
+        )
 
     @property
     def organism_state(self) -> OrganismState:

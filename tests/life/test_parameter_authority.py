@@ -134,6 +134,22 @@ def _origenes(log, *, excluir_bootstrap: bool) -> Dict[str, int]:
     return out
 
 
+def _fijar_durante_el_paso(kernel, valor: int) -> None:
+    """Fija el parámetro como lo haría el tier: dentro del paso, antes del episodio."""
+    original = kernel._runner_for
+
+    def una_vez(**kw):
+        runner = original(**kw)
+        runner.memory_retrieval_limit = valor
+        kernel._runner_for = original
+        return runner
+
+    kernel._runner_for = una_vez
+    kernel._runner = None
+    kernel._runner_key = None
+    kernel.step()
+
+
 # ── §CIX · ¿cuántos escritores efectivos tiene el knob? ─────────────────────
 
 
@@ -151,16 +167,27 @@ def test_el_parametro_tiene_una_sola_autoridad_de_mutacion(tmp_path):
             kernel.step()
 
     assert log, "nadie escribió el parámetro: la prueba no mide nada"
-    constructores = [w for w in log if ":__init__" in w["origen"]]
-    assert len(constructores) <= 1, (
-        f"el constructor fijó el parámetro {len(constructores)} veces: un default pertenece "
-        f"al bootstrap, no a cada construcción de un consumidor (§CII)"
-    )
 
+    # Una sola autoridad de mutación, excluido el bootstrap.
     efectivos = _origenes(log, excluir_bootstrap=True)
     assert len(efectivos) <= 1, (
         f"{len(efectivos)} autoridades de mutación distintas, deben ser 1: {efectivos}"
     )
+
+    # Y ninguna escritura del constructor puede CONTRADECIR el valor vigente.
+    # El constructor escribe una vez por construcción y eso es legítimo; lo que
+    # no lo es es que devuelva el parámetro al default (§CII). Se mide sobre el
+    # valor, no sobre el número de escrituras: así la prueba no depende de por
+    # dónde se implemente el traspaso.
+    vigente = None
+    for w in log:
+        if ":__init__" in w["origen"]:
+            assert vigente is None or w["valor"] == vigente, (
+                f"una reconstrucción puso el parámetro en {w['valor']!r} habiendo "
+                f"{vigente!r} vigente: el consumidor lo decidió en vez de recibirlo "
+                f"({w['origen']})"
+            )
+        vigente = w["valor"]
 
 
 # ── §LXII · el valor sobrevive a la reconstrucción, lo escribiera quien lo escribiera ──
@@ -179,7 +206,12 @@ def test_el_valor_vigente_sobrevive_a_la_reconstruccion(tmp_path):
     runner = kernel._runner
     assert runner is not None
     assert runner.memory_retrieval_limit == 3, "el default histórico cambió; revisar la prueba"
-    runner.memory_retrieval_limit = 5
+
+    # Se escribe DURANTE un paso, que es cuando escriben las fuentes reales: el
+    # tier lo hace en `_runner_for` y la ecología al construir su runner. Λ se
+    # sincroniza al cerrar el paso, así que escribir entre pasos —como hacía la
+    # primera versión de esta prueba— no reproduce ninguna ruta de producción.
+    _fijar_durante_el_paso(kernel, 5)
 
     kernel._runner = None  # reconstrucción, como el cierre de bloque
     kernel._runner_key = None
@@ -201,7 +233,7 @@ def test_el_default_solo_aplica_sin_estado_previo(tmp_path):
     kernel.step()
     assert kernel._runner.memory_retrieval_limit == 3  # bootstrap legítimo
 
-    kernel._runner.memory_retrieval_limit = 2
+    _fijar_durante_el_paso(kernel, 2)
     for _ in range(3):
         kernel._runner = None
         kernel._runner_key = None

@@ -150,6 +150,10 @@ class LifeKernel:
         # Viaja como _neural_state: se exporta tras cada paso, se entrega al runner
         # nuevo en _runner_for, va al checkpoint y vuelve por los dos restores.
         self._autoevolution_state: Dict[str, Any] = {}
+        # H-048 / §XVII: Λ_t, los valores vigentes de los parámetros adaptativos.
+        # Distinto de `self.config`, que es Config₀ (arranque, inmutable). El
+        # default sólo aplica mientras esto esté vacío.
+        self._parameter_state: Dict[str, Any] = {}
         # Sensado de recursos (host + GPU), opt-in por RNFE_HOST_SENSING.
         self._host_sampler = None
         self._vram_sampler = None
@@ -319,6 +323,7 @@ class LifeKernel:
         episode_result = runner.run_episode(external_input=input_value)
         self._neural_state = runner.export_neural_state()
         self._autoevolution_state = runner.export_autoevolution_state()
+        self._parameter_state = runner.export_parameter_state()
         self._consecutive_quarantine = 0  # actuó sano ⇒ ya no está atascado
         # Reflexión continua (E2): el maestro reflexiona si el episodio hirió, o cada
         # cierto tiempo — la reflexión es parte de su vida en todo momento. Off hot-path
@@ -806,6 +811,8 @@ class LifeKernel:
         self._neural_state = dict(neural_state) if isinstance(neural_state, dict) else {}
         ae_state = payload.get("autoevolution_state")
         self._autoevolution_state = dict(ae_state) if isinstance(ae_state, dict) else {}
+        par_state = payload.get("parameter_state")
+        self._parameter_state = dict(par_state) if isinstance(par_state, dict) else {}
 
     def _genesis(self) -> None:
         # organism_id (genoma) por precedencia: config gana sobre entorno →
@@ -865,6 +872,8 @@ class LifeKernel:
             lineage=self.lineage,
             retention_signal=getattr(self.config, "retention_signal", "ioc"),
             trajectory_reward=getattr(self.config, "trajectory_reward", "none"),
+            # Λ_t: el runner nuevo lo RECIBE. Vacío ⇒ bootstrap con los defaults.
+            parameter_state=dict(self._parameter_state) if self._parameter_state else None,
         )
         # La identidad soberana debe fijarse antes de restaurar la cadena dinámica;
         # un checkpoint de otro organismo/linaje se rechaza, no se reetiqueta.
@@ -926,6 +935,7 @@ class LifeKernel:
             scale_state=self._scale_state.to_dict() if self._scale_state is not None else {},
             neural_state=dict(self._neural_state),
             autoevolution_state=dict(self._autoevolution_state),
+            parameter_state=dict(self._parameter_state),
             metadata={"reason": reason},
         )
 
@@ -984,6 +994,8 @@ class LifeKernel:
             except Exception:
                 pass  # la telemetría nunca tumba el refugio (misma disciplina que life.refuge.*)
         self._autoevolution_state = restored_ae
+        par_state = payload.get("parameter_state")
+        self._parameter_state = dict(par_state) if isinstance(par_state, dict) else {}
         self._runner = None
         self._runner_key = None
         # B18: el payload del rollback se emite con la FORMA de `contracts/rollback.schema.json`

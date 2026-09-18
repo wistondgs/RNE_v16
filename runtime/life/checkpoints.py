@@ -59,6 +59,7 @@ class CheckpointManager:
         scale_state: Dict[str, Any] | None = None,
         neural_state: Dict[str, Any] | None = None,
         autoevolution_state: Dict[str, Any] | None = None,
+        parameter_state: Dict[str, Any] | None = None,
         metadata: Dict[str, Any] | None = None,
     ) -> ArtifactRecord:
         checkpoint_id = f"life-ckpt-{uuid4().hex[:12]}"
@@ -90,6 +91,8 @@ class CheckpointManager:
             # H-046: estado longitudinal del lazo ρₜ. Slot aditivo, mismo patrón que
             # neural_state; un payload legacy sin la clave restaura {} (controller fresco).
             "autoevolution_state": dict(autoevolution_state or {}),
+            # §XVII: Λ_t aparte de Config₀. Slot aditivo; legacy restaura {}.
+            "parameter_state": dict(parameter_state or {}),
             "metadata": dict(metadata or {}),
         }
         blob = json.dumps(jsonable(payload), ensure_ascii=True, sort_keys=True, indent=2)
