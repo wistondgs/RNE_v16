@@ -166,7 +166,7 @@ class AutoEvolutionController:
         *,
         run_id: str,
         knob_reader: Callable[[], Dict[str, Any]],
-        knob_writer: Callable[[Dict[str, Any]], None],
+        knob_writer: Callable[..., None],
         storage=None,
         lineage: LineageState | None = None,
         pipeline: SelfModificationPipeline | None = None,
@@ -301,7 +301,7 @@ class AutoEvolutionController:
         # (3 / config) y una modificación commiteada se esfuma en el siguiente
         # rebuild. Un runner nuevo debe RECIBIR el mando, no decidirlo (§XVI).
         if self._adopted_knobs:
-            self.knob_writer(dict(self._adopted_knobs))
+            self._write_knobs(dict(self._adopted_knobs), action="rehydrate")
         self._active_proposal_id = payload.get("active_proposal_id")
         self._proposals = [ProposalRecord.from_payload(r) for r in (payload.get("proposals") or [])]
         return True
@@ -350,6 +350,26 @@ class AutoEvolutionController:
             self._active_proposal_id = proposal_id
 
     # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _write_knobs(
+        self, changes: Dict[str, Any], *, action: str, proposal_id: str | None = None
+    ) -> None:
+        """Escribe mandos diciendo DE QUÉ acción viene (§XLII).
+
+        El lazo escribe en cuatro momentos distintos —aplicar una propuesta,
+        revertirla, rodar a un checkpoint sano, rehidratar tras un rebuild— y
+        los cuatro llegaban a la autoridad como el mismo `rho_t knob change`.
+        En el ledger eso los vuelve indistinguibles: un revert se leería como
+        una aplicación nueva. El contexto es lo que los separa.
+        """
+        self.knob_writer(
+            changes,
+            {
+                "source": f"autoevolution:{action}",
+                "reason": f"rho_t {action}",
+                "proposal_id": proposal_id,
+            },
+        )
 
     def _emit(self, event_type: str, payload: Dict[str, Any]) -> None:
         if self.storage is None:
@@ -568,7 +588,7 @@ class AutoEvolutionController:
 
         # 7) Aplicar sobre los mandos reales + monitor post-aplicación.
         knob_backup = dict(self.knob_reader())
-        self.knob_writer(candidate["changes"])
+        self._write_knobs(candidate["changes"], action="apply", proposal_id=proposal.proposal_id)
         self._adopted_knobs = {**(self._adopted_knobs or {}), **candidate["changes"]}
         self._transition(proposal.proposal_id, "applied", episode=episode)
         self.lineage.record_modification(
@@ -602,7 +622,11 @@ class AutoEvolutionController:
         rollback_id = f"rb-{uuid4().hex[:8]}"
         restored_state = None
         if self._checkpoint is not None:
-            self.knob_writer(self._checkpoint["knobs"])
+            self._write_knobs(
+                self._checkpoint["knobs"],
+                action="rollback",
+                proposal_id=(self._post_monitor or {}).get("proposal_id"),
+            )
             self._adopted_knobs = dict(self._checkpoint["knobs"])
             restored_state = self._checkpoint["state"]
         self.lineage.record_rollback(
@@ -689,7 +713,9 @@ class AutoEvolutionController:
 
         if revert:
             # La modificación empeoró lo que el criterio vigila: revertir mandos + estado.
-            self.knob_writer(monitor["knob_backup"])
+            self._write_knobs(
+                monitor["knob_backup"], action="revert", proposal_id=monitor["proposal_id"]
+            )
             self._adopted_knobs = dict(monitor["knob_backup"])
             rollback_id = f"rb-{uuid4().hex[:8]}"
             self._transition(monitor["proposal_id"], "reverted", episode=episode, reason=decided_by)

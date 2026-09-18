@@ -79,7 +79,7 @@ class _Knobs:
     def read(self):
         return dict(self.values)
 
-    def write(self, changes):
+    def write(self, changes, context=None):  # el contexto lo pone el lazo (§XLII)
         self.values.update(changes)
 
 

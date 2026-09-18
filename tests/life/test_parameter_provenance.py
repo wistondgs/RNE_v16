@@ -204,6 +204,67 @@ def test_la_cadena_de_hashes_reconstruye_la_trayectoria_de_lambda(tmp_path):
     assert [r["source"] for r in reg[-3:]] == ["execution_tier", "ecology", "experiment"]
 
 
+# ── §XLV, §LXIII · el rollback es exacto, y se sabe que fue un rollback ─────
+
+
+def test_el_rollback_devuelve_lambda_al_hash_exacto(tmp_path):
+    """No «parecido»: el MISMO hash. Y registrado como rollback, no como aplicación.
+
+    Si un revert se registrara igual que una aplicación, el ledger diría que el
+    organismo eligió volver al valor anterior — cuando lo que pasó es que se
+    deshizo una modificación. Son dos historias causales distintas.
+    """
+    kernel = LifeKernel(config=_config(run_id="exacto"), storage=(st := _storage(tmp_path, "exacto")))
+    kernel.step()
+    runner = kernel._runner
+    ctrl = runner._autoevolution
+
+    h_sano = parameters.state_hash(runner._parameters)
+    ctrl._checkpoint = {"state": None, "knobs": dict(runner._parameters)}
+
+    # Λ se desvía de verdad: si no, la prueba se cumpliría por no haberse movido.
+    runner.apply_parameter_intent(
+        {"memory_retrieval_limit": 9, "memory_filter_mode": "analogical"},
+        source="experiment", reason="desviar antes del rollback",
+    )
+    assert parameters.state_hash(runner._parameters) != h_sano, "la prueba sería vacía"
+
+    ctrl._execute_rollback(reason="prueba", episode=1)
+
+    assert parameters.state_hash(runner._parameters) == h_sano, (
+        "el rollback no devolvió Λ al estado exacto"
+    )
+    ultimo = [r for r in _ledger(st, "exacto") if r["outcome"] == "accepted"][-1]
+    assert ultimo["source"] == "autoevolution:rollback", (
+        f"el rollback se registró como {ultimo['source']!r}: indistinguible de una aplicación"
+    )
+    assert ultimo["hash_after"] == h_sano
+
+
+def test_el_revert_de_la_ventana_se_distingue_de_la_aplicacion(tmp_path):
+    """§LXIII — aplicar y deshacer deja DOS entradas de distinto signo y procedencia."""
+    kernel = LifeKernel(config=_config(run_id="rev"), storage=(st := _storage(tmp_path, "rev")))
+    kernel.step()
+    runner = kernel._runner
+    ctrl = runner._autoevolution
+
+    h_0 = parameters.state_hash(runner._parameters)
+    backup = dict(runner._parameters)
+
+    ctrl._write_knobs({"memory_retrieval_limit": 7}, action="apply", proposal_id="prop-x")
+    assert parameters.state_hash(runner._parameters) != h_0
+    ctrl._write_knobs(backup, action="revert", proposal_id="prop-x")
+
+    assert parameters.state_hash(runner._parameters) == h_0, "el revert no fue exacto"
+
+    reg = [r for r in _ledger(st, "rev") if r["outcome"] == "accepted"][-2:]
+    assert [r["source"] for r in reg] == ["autoevolution:apply", "autoevolution:revert"]
+    # Las dos entradas pertenecen a la misma propuesta: el ledger de parámetros
+    # se puede unir con el lifecycle de propuestas sin inferir por cercanía.
+    assert {r["proposal_id"] for r in reg} == {"prop-x"}
+    assert reg[0]["hash_before"] == reg[1]["hash_after"] == h_0
+
+
 # ── §CII · reconstruir no es mutar ──────────────────────────────────────────
 
 
