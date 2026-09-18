@@ -694,10 +694,18 @@ class LifeKernel:
                     organism_state=self.organism_state,
                     lineage=self.lineage,
                 )
-        elif decision.action == "quarantine" and self._experience is not None:
+        elif decision.action == "quarantine":
             # E5 — refugio sano: una cuarentena atascada es un callejón sin salida (no
             # ejecuta episodios ⇒ no se recupera). Tras varias seguidas, el organismo rueda
             # a su último yo sano para sobrevivir y seguir aprendiendo de sus golpes.
+            #
+            # H-050: esta rama pedía además `self._experience is not None`, que depende
+            # de RNFE_EXPERIENCE y está apagada por default. El contador nunca avanzaba,
+            # el refugio nunca disparaba, y la cuarentena resultaba ABSORBENTE: medido,
+            # 31 episodios y luego 29 pasos seguidos sin ejecutar, con el margen clavado
+            # en 0.1435. Sobrevivir a una cuarentena atascada y guardar memoria de los
+            # golpes son dos capacidades distintas; compartir rama las ataba sin motivo.
+            # El umbral que decide ENTRAR en cuarentena no se toca: está congelado.
             self._consecutive_quarantine += 1
             if self._consecutive_quarantine >= 3 and self._restore_latest_healthy_checkpoint():
                 vitals = self.vitals_service.bootstrap(
