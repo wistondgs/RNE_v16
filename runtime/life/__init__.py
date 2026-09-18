@@ -12,6 +12,7 @@ from .contracts import (
 from .goals import GoalManager
 from .kernel import LifeKernel, LifeKernelConfig
 from . import reference_manifest
+from . import twins
 from .persistence import OrganismPersistence
 from .supervisor import AutonomySupervisor, AutonomySupervisorConfig
 from .vitals import VitalSignsService
@@ -30,6 +31,7 @@ __all__ = [
     "LIFE_CHECKPOINT_KIND",
     "OrganismPersistence",
     "reference_manifest",
+    "twins",
     "RestoredIdentity",
     "VitalSignsService",
     "VitalSignsSnapshot",
