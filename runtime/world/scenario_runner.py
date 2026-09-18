@@ -516,6 +516,52 @@ class ScenarioEpisodeRunner:
     def restore_autoevolution_state(self, payload: Dict[str, Any] | None) -> bool:
         return self._autoevolution.restore_state(payload)
 
+    # ── continuidad epistemológica (R-012) ───────────────────────────────────
+
+    def _previous_certification(self) -> Dict[str, Any] | None:
+        """El último veredicto emitido. Caché si está caliente; si no, el LEDGER.
+
+        R-012: esto vivía sólo en `self._last_certification`, un atributo de una
+        instancia que el kernel destruye cada `block_size` episodios, tras cada
+        refugio y al cambiar la clave de `_runner_for`. Medido con
+        `block_size=1`: el trayecto no vio el certificado anterior **ni una sola
+        vez** en 12 transiciones, teniendo los 12 certificados en el ledger, y
+        cobró la penalización de «no certificado» en las 12.
+
+        El defecto no era cachear: era que la caché fuese la FUENTE DE VERDAD.
+        Los certificados y las decisiones de promoción se persisten, así que
+        `C_{t-1}` es rederivable. La caché se queda por eficiencia y se rellena
+        con lo rederivado, pero ya no es lo único que lo sabe.
+        """
+        if self._last_certification is not None:
+            return dict(self._last_certification)
+        try:
+            certs = self.storage.list_episode_certificates(run_id=self.run_id, limit=1)
+        except Exception:
+            # Un ledger ilegible degrada a la conducta de hoy (sin veredicto
+            # anterior), no tumba el episodio. Es el ÚNICO silencio de esta ruta
+            # y es deliberado: leer el ledger es un préstamo, no un requisito.
+            return None
+        if not certs:
+            return None  # primer episodio del run: no hay anterior, no se inventa
+        cert = certs[0]
+        decision_verdict = None
+        try:
+            for decision in self.storage.list_promotion_decisions(run_id=self.run_id, limit=8):
+                if decision.certificate_id == cert.certificate_id:
+                    decision_verdict = decision.verdict
+                    break
+        except Exception:
+            pass  # el veredicto de promoción es accesorio; el del certificado no
+        rederivado = {
+            "certificate_id": cert.certificate_id,
+            "verdict": cert.verdict,
+            "promotion_candidate": cert.promotion_candidate,
+            "decision_verdict": decision_verdict,
+        }
+        self._last_certification = dict(rederivado)
+        return rederivado
+
     def build_dynamic_trajectory_window(self, *, size: int = 8):
         """Vista longitudinal cerrada sobre la cadena vital verificada."""
 
@@ -1197,8 +1243,10 @@ class ScenarioEpisodeRunner:
         # el paso ~32. Con `trajectory_reward="previous_certificate"` se le entrega
         # el último veredicto emitido: recompensa con un paso de retardo, que es la
         # única que existe en este punto. Default "none" = conducta histórica.
-        if self._trajectory_reward == "previous_certificate" and self._last_certification:
-            episode_result["certification"] = dict(self._last_certification)
+        if self._trajectory_reward == "previous_certificate":
+            previa = self._previous_certification()
+            if previa:
+                episode_result["certification"] = previa
         previous_state = self._organism_state
         # B41: el state_id se ancla al GENOMA (organism_id), no a la corrida (run_id) —
         # coherente con la génesis del kernel (state-0-{organism_id}).
