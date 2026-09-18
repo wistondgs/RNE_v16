@@ -92,6 +92,15 @@ Pruebas: `tests/organism/test_autoevolution_state.py` · `tests/life/test_autoev
 El tripwire `xfail(strict)` que la ola 2 dejó nombrando H-047 **disparó** con `XPASS` al
 cerrarse el ownership del mundo, y se retiró la marca.
 
+**El estado viaja atrás; el ledger no.** Un refugio restaura un estado ANTERIOR del lazo,
+y ese estado puede creer que una propuesta sigue en monitoreo cuando el ledger ya registró
+su desenlace: medido, `mod-24dbd0b9` recibió **dos** `autoevolution.committed`, rompiendo
+`∀ p ∈ APPLIED, ∃! outcome`. Apareció al volver continuo el mundo, que cambió la
+trayectoria de viabilidad lo bastante para alcanzar un camino antes inalcanzable.
+`runtime/life/kernel.py` reconcilia contra el ledger antes de adoptar el estado
+restaurado: una propuesta que allí ya cerró se adopta cerrada, sin segundo evento
+terminal, y su ventana se descarta con un evento propio no terminal.
+
 ---
 
 # III · La autoridad de parámetros y el ledger de Λ
@@ -211,3 +220,39 @@ respuesta multiobjetivo a la que se le hizo una pregunta de promoción.
 clase `MODEL_PARAMETER` —pesos y arquitectura de un órgano— sin ningún parámetro dentro.
 Esos seis coeficientes son el primer caso bien planteado de «hiperparámetros sobre los
 pesos»: pocos, nombrados, versionados y ya calibrados.
+
+
+---
+
+# VI · El harness de gemelos causales
+
+`HECHO DE CÓDIGO` + `HECHO EXPERIMENTAL`.
+
+`runtime/life/twins.py` demuestra `X₀ᴬ = X₀ᴮ` **antes** de intervenir, y se niega a
+continuar si no se cumple. Sin eso, una diferencia posterior no es atribuible a nada.
+
+**Un gemelo se construye, no se copia.** Un organismo con tensores que son nodos de grafo
+no admite `deepcopy`, y reconstruir es además más fuerte: la identidad se comprueba en vez
+de heredarse.
+
+La huella cubre las seis piezas longitudinales que el kernel posee: `organism`, `lineage`,
+`parameters`, `world`, `autoevolution`, `neural`. La pieza `world` no existía hasta cerrar
+H-047 — dos gemelos podían tener la misma huella y mundos distintos.
+
+**Igualdad salvo renombrado.** Medido sobre dos gemelos construidos igual, divergían en 4
+de 6 piezas y **todas** las diferencias eran identificadores acuñados dentro de los
+payloads —`lin-…`, `life-…`, `episode-…`—: 267 campos en el estado neural y ni uno de
+fisiología. No se borran: se canonizan a su ordinal de aparición, de forma consistente en
+toda la estructura, así que dos payloads son iguales si lo son salvo un renombrado
+coherente. Las claves que terminan en `run_id` se excluyen por **regla**, no por lista: la
+lista cerrada ya falló con `dynamic_chain.last_run_id`.
+
+**Observar no muta.** La huella lee sólo payloads ya exportados; no invoca al organismo ni
+al mundo. Terrario midió el coste de lo contrario: percibir una sonda avanzaba el estado
+recurrente y el contador, y el ORDEN de los exámenes pasaba a formar parte del resultado.
+
+`do(U)` pasa por `apply_parameter_intent`, no por asignación, así que queda en el ledger
+con su procedencia y sus hashes de Λ. Una intervención sin rastro es indistinguible de una
+deriva.
+
+Prueba: `tests/life/test_twin_harness.py`.
