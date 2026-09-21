@@ -16,6 +16,11 @@ rango o en blanco. El hash no puede ver que una cita se pudra mientras el
 fichero registrado sigue igual — en el árbol de Terrario esa comprobación
 encontró seis citas rotas a la primera pasada.
 
+Y declara su alcance: cada corrida lista las secciones que **no citan ninguna
+ruta**, porque el gate no puede invalidarlas. Aquí hoy son **cero**; en Terrario
+son doce de cuarenta y cuatro, y de las dos comprobadas las dos estaban
+desfasadas.
+
 **Citas de otro árbol.** RNFE son tres árboles. Las citas con prefijo —`v16:…`, `v15:…`—
 se vigilan igual que las locales. Existe esa capacidad porque su ausencia produjo R-015.
 

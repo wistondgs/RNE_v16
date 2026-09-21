@@ -186,6 +186,18 @@ def head() -> str:
         return "unavailable"
 
 
+def unwatched() -> tuple[str, ...]:
+    """Secciones que no citan una sola ruta: el gate no puede invalidarlas.
+
+    Portado del árbol de Terrario, donde doce de cuarenta y cuatro estaban en
+    esa situación y las dos comprobadas salieron desfasadas. No es un fallo:
+    es la frontera de este comprobador, dicha en cada corrida.
+    """
+    text = CARTOGRAPHY.read_text(encoding="utf-8")
+    return tuple(title for title, body in sections(text).items()
+                 if title != "(preámbulo)" and not referenced(body))
+
+
 def survey() -> dict[str, dict[str, str]]:
     """Estado actual: por sección, el hash de cada fichero que cita."""
     text = CARTOGRAPHY.read_text(encoding="utf-8")
@@ -268,6 +280,13 @@ def check(only: str | None, tarea: str | None = None) -> int:
             reasons.append(f"dejó de citarse: {reference}")
         if reasons:
             stale[title] = reasons
+
+    ciegas = unwatched()
+    if ciegas and not only:
+        print(f"SIN VIGILANCIA — {len(ciegas)} sección(es) no citan ninguna ruta.\n")
+        for title in ciegas:
+            print(f"      {title}")
+        print()
 
     podridas = {t: v for t, v in rotten_citations().items()
                 if not only or only.lower() in t.lower()}

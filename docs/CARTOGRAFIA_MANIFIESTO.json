@@ -2,7 +2,7 @@
   "schema_version": "genesis.docs.cartography-manifest/v1",
   "document": "docs/CARTOGRAFIA_GENESIS_01.md",
   "written_at": "2026-09-21",
-  "head": "db07fa9",
+  "head": "8f506a7",
   "trees": {
     "v16": "/home/wis/Desarrollo/RNE_v16",
     "v15": "/home/wis/dev/rnfe.v15"
@@ -10,7 +10,7 @@
   "sections": {
     "Cartografía de Genesis": {
       "files": {
-        "scripts/cartografia_check.py": "7ad4f7f8e4cc493cfb013fb0d236c7acddffe6d23b2a67d4ed72839cc5368c9a"
+        "scripts/cartografia_check.py": "83b2dbe8d8836c3b534df22a5f7d0339221d63b1c3068897a22d8f63a1055e00"
       }
     },
     "I · Los tres árboles, y por qué esta sección va primera": {
