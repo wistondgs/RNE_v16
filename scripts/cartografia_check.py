@@ -82,6 +82,47 @@ REFERENCE = re.compile(
 )
 
 
+#: `fichero:línea` dentro de un enlace markdown, con o sin prefijo de árbol.
+#: El hash vigila el fichero; esto vigila la CITA. Son fallos distintos: una
+#: línea se pudre cuando el símbolo se desplaza, y si el fichero no cambió
+#: desde que se regeneró el manifiesto la sección sigue verde apuntando a otra
+#: cosa. En el árbol de Terrario esta comprobación encontró seis a la primera.
+CITATION = re.compile(
+    r"\((((?:v16:|v15:)?"
+    r"(?:runtime|tests|scripts|lab|engines|contracts|canon|docs)/[\w./-]+"
+    r"\.(?:py|yaml|yml|json|md)):(\d+))\)"
+)
+
+
+def rotten_citations() -> dict[str, list[str]]:
+    """Citas `fichero:línea` que no resuelven, por sección.
+
+    No comprueba que la línea diga lo que la prosa afirma --eso no es
+    decidible-- sino que exista y no esté en blanco.
+    """
+    text = CARTOGRAPHY.read_text(encoding="utf-8")
+    found: dict[str, list[str]] = {}
+    for title, body in sections(text).items():
+        bad: list[str] = []
+        for _, reference, number in CITATION.findall(body):
+            path, reason = resolve(reference)
+            if path is None:
+                bad.append(f"{reference}:{number} — {reason}")
+                continue
+            if not path.is_file():
+                bad.append(f"{reference}:{number} — el fichero no existe")
+                continue
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            index = int(number)
+            if index < 1 or index > len(lines):
+                bad.append(f"{reference}:{number} — fuera de rango ({len(lines)} líneas)")
+            elif not lines[index - 1].strip():
+                bad.append(f"{reference}:{number} — línea en blanco")
+        if bad:
+            found[title] = sorted(set(bad))
+    return found
+
+
 def file_sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as handle:
@@ -228,7 +269,20 @@ def check(only: str | None, tarea: str | None = None) -> int:
         if reasons:
             stale[title] = reasons
 
+    podridas = {t: v for t, v in rotten_citations().items()
+                if not only or only.lower() in t.lower()}
+
     scope = f" (sección ~ {only!r})" if only else ""
+    if podridas:
+        print(f"CITAS ROTAS{scope} — {len(podridas)} sección(es):\n")
+        for title, reasons in podridas.items():
+            print(f"  {title}")
+            for reason in reasons:
+                print(f"      {reason}")
+            print()
+        if not stale:
+            print("G1: los hashes están al día; lo que falla son las citas de línea.")
+            return 1
     if not stale:
         vigilados = sum(len(f) for t, f in current.items()
                         if not only or only.lower() in t.lower())

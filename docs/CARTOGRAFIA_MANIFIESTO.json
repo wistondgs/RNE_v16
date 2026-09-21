@@ -1,8 +1,8 @@
 {
   "schema_version": "genesis.docs.cartography-manifest/v1",
   "document": "docs/CARTOGRAFIA_GENESIS_01.md",
-  "written_at": "2026-09-18",
-  "head": "51c24d7",
+  "written_at": "2026-09-21",
+  "head": "23947ff",
   "trees": {
     "v16": "/home/wis/Desarrollo/RNE_v16",
     "v15": "/home/wis/dev/rnfe.v15"
@@ -10,7 +10,7 @@
   "sections": {
     "Cartografía de Genesis": {
       "files": {
-        "scripts/cartografia_check.py": "6161fdb5eea1344804a477f8e4012c474c2cf0b98e39d0bff74f890157ff172a"
+        "scripts/cartografia_check.py": "7ad4f7f8e4cc493cfb013fb0d236c7acddffe6d23b2a67d4ed72839cc5368c9a"
       }
     },
     "I · Los tres árboles, y por qué esta sección va primera": {
@@ -71,6 +71,16 @@
       "files": {
         "runtime/life/twins.py": "829ace86154f9643a9a7ca1fd5789df6f3aebb962ce01870d49d92e20d2350f2",
         "tests/life/test_twin_harness.py": "dd09a991c240dc0900d618f88f7d316af6c2fa483096ea42d38d425c6f974e82"
+      }
+    },
+    "VII · `lab/genesis/` · la fábrica de capacidades · Atlas 05": {
+      "files": {
+        "lab/genesis/acquisition/complete_frontier.py": "a489e6091b6171446b0bd6481adea0351bf22a44c72f48089641abb541758b2f",
+        "lab/genesis/acquisition/confirmation.py": "d527ddd29d4fff72a08ab373713ac98b3a1d5f46f1550e4f993b83ef3b9d8b17",
+        "lab/genesis/acquisition/contracts.py": "46dbb5a03355978b053bf6c35e264455c2d6b02ab5c4b9ab5fd5e014ed8e0078",
+        "lab/genesis/acquisition/dsl.py": "b4df21d01cad02d78a5e398a44a4282338a284c5550a28dd1fb6c6b8b041883c",
+        "lab/genesis/acquisition/synthesis.py": "058ca9b146e8917ca70f3c2c6388bb2686aaf1d8ccd9335af9463531fd721e5c",
+        "lab/genesis/evidence/ledger.py": "54575f7dbbfc7d3e58b4ada5482b917945bac80c63a3d2d1a2943adcd1ad02b5"
       }
     }
   }

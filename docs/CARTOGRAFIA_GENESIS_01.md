@@ -11,6 +11,11 @@ este documento cita y lo compara con `docs/CARTOGRAFIA_MANIFIESTO.json`. Una sec
 código cambió queda STALE y no se construye sobre ella hasta releerla. La lista de ficheros
 no se mantiene a mano: sale de las citas del propio texto.
 
+Desde el 2026-09-21 verifica además cada `fichero:línea`: inexistente, fuera de
+rango o en blanco. El hash no puede ver que una cita se pudra mientras el
+fichero registrado sigue igual — en el árbol de Terrario esa comprobación
+encontró seis citas rotas a la primera pasada.
+
 **Citas de otro árbol.** RNFE son tres árboles. Las citas con prefijo —`v16:…`, `v15:…`—
 se vigilan igual que las locales. Existe esa capacidad porque su ausencia produjo R-015.
 
@@ -266,3 +271,149 @@ con su procedencia y sus hashes de Λ. Una intervención sin rastro es indisting
 deriva.
 
 Prueba: `tests/life/test_twin_harness.py`.
+
+---
+
+# VII · `lab/genesis/` · la fábrica de capacidades · Atlas 05
+
+Lectura del 2026-09-21. **Las seis secciones anteriores mapean `runtime/`** —el
+organismo y su andamiaje— y no mencionan `lab/genesis/` ni una vez: cero
+ficheros vigilados de 19 861 líneas. Esta sección cubre ese hueco y no repite
+nada de ellas.
+
+Corrección de nombres que conviene dejar dicha: este repositorio se llama
+`RNE_v16-genesis-v2`, su cartografía se llama «de Genesis» y mapea el runtime,
+mientras el directorio literalmente llamado `lab/genesis/` estaba sin mapear. El
+nombre del repositorio no determina la ontología de sus subsistemas.
+
+## 7.1 · Qué entra · el espacio de capacidades es aritmética univariada
+
+Una capacidad **no es una entrada en un registro mutable: es un artefacto de
+programa inmutable**
+([contracts.py:101](lab/genesis/acquisition/contracts.py:101)), con identidad
+estructural de AST y sin una línea de Python embebida ni ejecutada.
+
+El lenguaje es cerrado y pequeño
+([dsl.py:18](lab/genesis/acquisition/dsl.py:18)):
+
+```
+X · CONST · ADD · SUB · MUL_CONST · ABS · SQUARE        7 operadores
+una sola variable entera · evaluación total y acotada
+```
+
+Y las tareas confirmatorias son seis, nombradas de antemano
+([confirmation.py:17](lab/genesis/acquisition/confirmation.py:17)):
+
+```
+affine-0  affine-1  ·  abs_affine-0  abs_affine-1  ·  quadratic_simple-0  quadratic_simple-1
+```
+
+**Eso es el espacio de adquisición: expresiones enteras univariadas.** No es una
+crítica —el propio módulo lo declara: «no es evidencia sobre búsqueda ilimitada
+o abierta»
+([complete_frontier.py:10](lab/genesis/acquisition/complete_frontier.py:10))—
+pero hay que decirlo antes que nada, porque «Genesis adquiere capacidades»
+significa exactamente esto y no otra cosa.
+
+## 7.2 · Qué transforma · las reglas tienen nombre y versión
+
+Los cuatro invariantes del método están declarados como constantes, no
+escondidos en una función
+([contracts.py:24](lab/genesis/acquisition/contracts.py:24)–[27](lab/genesis/acquisition/contracts.py:27)):
+
+```
+DATASET_SPLITS              TRAIN · AUDIT · HIDDEN · TRANSFER
+CANDIDATE_RANKING_RULE      training_error_then_mdl_then_canonical_program_hash-v1
+PROMOTION_RULE              train_exact_audit_once_exact_no_leakage-v1
+HUMAN_INTERVENTION_POLICY   no_interactive_corrective_selection-v1
+```
+
+La síntesis es **enumerativa determinista y sólo sobre TRAIN**
+([synthesis.py:16](lab/genesis/acquisition/synthesis.py:16)), y su identificador
+de semántica dice algo que casi nadie escribe: `FIRST_SEEN_BEHAVIOR_REPRESENTATIVE-v1`
+existe «para documentar la semántica histórica **en vez de afirmar que la regla
+del primer representante fuera correcta para ordenar**». Se congeló una regla
+que se sabe imperfecta para poder replicar la evidencia que produjo, y se
+escribió al lado la versión ordenada (`ranked_synthesis.py`, 672 líneas).
+
+El ledger de evidencia es una cadena de hashes con verificación
+([ledger.py:27](lab/genesis/evidence/ledger.py:27),
+[:49](lab/genesis/evidence/ledger.py:49)): cada evento encadena con el anterior
+y `verify` recorre la cadena entera.
+
+## 7.3 · Qué produce · una campaña canónica corrió, y promovió
+
+En `rnfe_artifacts/` hay cuatro campañas. Tres son un `LAUNCH` y nada más. La
+cuarta, `m7h2b1-e0614aa`, corrió de verdad: **5 560 ficheros, 24 MB**, con CAS,
+journals por tarea, y ranuras de auditoría de un solo uso.
+
+Su desenlace, leído de los artefactos:
+
+```
+tareas completadas     1 de 6        abs_affine-0
+evaluación             AUDIT · 5/5 correctas · exact_pass: true
+receta de promoción    genesis-m7-v2-promotion-receipt-h2b1 · status: PROMOTED
+tareas sin empezar     5             abs_affine-1 · affine-0/1 · quadratic_simple-0/1
+```
+
+**La cadena entera funcionó una vez, de punta a punta.** Frontera auditada →
+campaña sellada → síntesis → compromiso de candidato → reclamo de ranura de
+auditoría → evaluación exacta → **promoción**.
+
+Y después el lanzador desapareció. El registro de la interrupción es lo más
+honesto del subsistema:
+
+```
+observed_state    launcher_process_not_present_before_second_journal
+recovery_action   NONE
+reason            el escritor de journals es create-only y el runner rechaza un
+                  journal existente en vez de reconstruir una clausura en
+                  memoria. Cambiar eso después de consumir una campaña canónica
+                  violaría el congelado de H2B1.
+```
+
+Es decir: **un corte de proceso gastó una ranura canónica, y las reglas de
+congelado prohibieron correctamente rescatarla.** No se reparó a posteriori para
+salvar la corrida. Eso es disciplina, y es también el coste exacto de no poder
+reanudar.
+
+## 7.4 · Quién lo consume · nadie
+
+Medido sobre todo el árbol:
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Importa `lab/genesis` algo fuera de `lab/` y `tests/`? | **0 ficheros** en `runtime/`, `engines/`, `scripts/`, `exocortex/`, `governance/`, `ingest/` |
+| ¿Menciona el runtime `ProgramSkillArtifact` o `PromotionReceipt`? | **0 ficheros** |
+| ¿Lee alguien las campañas de `rnfe_artifacts/`? | 2 ficheros nombran la ruta, y son la raíz de almacenamiento del runtime y un default de CLI — ninguno lee una campaña |
+| ¿Cuántos tests lo ejercitan? | **70** |
+
+La frase «un G1 promovido es exactamente G0 más esa habilidad concreta» existe
+en el docstring de los contratos
+([contracts.py:6](lab/genesis/acquisition/contracts.py:6)) y **no existe como
+código**: no hay función que componga un organismo con la habilidad promovida.
+El artefacto se promueve; no se entrega a nadie.
+
+> **El hecho arquitectónico:** Genesis adquiere, audita y promueve programas con
+> una disciplina de evidencia mejor que la de casi todo lo demás del proyecto, y
+> lo promovido **no llega al organismo**. La receta `PROMOTED` es el último
+> eslabón que existe.
+
+Esto no invalida Genesis. Lo sitúa: hoy es un **laboratorio de adquisición
+cerrado sobre sí mismo**, con su propio ledger, su propio congelado y sus
+propias ranuras de un solo uso. Lo que falta no es rigor — es la arista que va
+de la receta de promoción a `runtime/`.
+
+## 7.5 · Lo que no se sabe
+
+1. **K2** · Si el aislamiento es deliberado. No hay ADR en `canon/normative` que
+   diga «Genesis no se integra todavía», y tampoco uno que prometa la arista.
+   Sin eso, «aislamiento deliberado» e «integración incompleta» son
+   indistinguibles desde el código.
+2. **K2** · Qué haría falta para que una habilidad promovida entrase en el
+   organismo. El DSL produce funciones `int → int`; ningún punto del runtime
+   consume una función así.
+3. **K2** · Por qué las tres campañas v3 se detuvieron en `LAUNCH`. El ledger
+   registra el lanzamiento y ningún evento posterior.
+4. **K1** · `ranked_synthesis.py` corrige la regla de ordenación de v1. Si
+   alguna campaña se ejecutó bajo la regla nueva no consta en `rnfe_artifacts/`.
