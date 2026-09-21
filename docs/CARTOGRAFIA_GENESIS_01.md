@@ -417,3 +417,166 @@ de la receta de promoción a `runtime/`.
    registra el lanzamiento y ningún evento posterior.
 4. **K1** · `ranked_synthesis.py` corrige la regla de ordenación de v1. Si
    alguna campaña se ejecutó bajo la regla nueva no consta en `rnfe_artifacts/`.
+
+---
+
+# VIII · RNE · qué persiste, qué puede cambiar, y qué tendría que tocar Genesis · Atlas 06
+
+Lectura del 2026-09-21. **§I–§VI ya cubren** el lazo de vida y la propiedad del
+estado, la autoridad de parámetros y el ledger de Λ, el régimen de referencia,
+lo neural y el harness de gemelos. Esta sección **no los repite**: completa lo
+que falta y contesta una pregunta que el Atlas 05 dejó planteada —
+
+> ¿qué tendría que modificar Genesis para convertir una receta `PROMOTED` en
+> una capacidad del organismo?
+
+## 8.1 · Hay tres superficies que pueden cambiar, y ninguna acepta un programa
+
+| Superficie | Qué acepta | Estado |
+|---|---|---|
+| **mandos adaptativos** · `apply_parameter_intent` ([scenario_runner.py:357](runtime/world/scenario_runner.py:357)) | **dos escalares**: `memory_retrieval_limit`, `memory_filter_mode` | **funciona**, con ledger y procedencia (§III) |
+| **`MODEL_PARAMETER`** ([parameters.py:42](runtime/world/parameters.py:42)) | pesos y arquitectura de un órgano | **declarada y vacía a propósito** (§V) |
+| **componentes mutables** · `SelfModificationPipeline` ([self_modification.py:15](runtime/organism/self_modification.py:15)) | seis políticas y parámetros | **cableada** desde R1 |
+
+Genesis promueve un **artefacto de programa `int → int`** de siete operadores.
+**Ninguna de las tres acepta un programa.** La más cercana —`MODEL_PARAMETER`—
+está declarada para pesos y arquitectura, no para una función, y está vacía.
+
+Ésa es la respuesta, y no es «falta cablear»: es que **el destinatario no existe
+como tipo**.
+
+## 8.2 · El lazo ρₜ · la superficie que sí funciona, y lo que mueve
+
+`autoevolution.py` cierra el lazo y dice su propia historia
+([:3](runtime/organism/autoevolution.py:3)): «Hasta R1,
+`SelfModificationPipeline` existía pero **nada lo invocaba**: el organismo no
+podía proponerse cambios». R1 lo cableó al lazo episódico:
+
+```
+degradación sostenida → diagnóstico → propuesta ρₜ → precheck constitucional
+→ sandbox → gate de seguridad S-I-E → aplicar sobre mandos REALES
+→ ventana de post_window vigilando ΔIoC → commit o ROLLBACK ejecutable
+```
+
+Tres propiedades que conviene tener separadas de la promesa:
+
+* **El rollback es ejecutable**, no declarativo: si la media de ΔIoC sale
+  negativa se revierten los mandos **y** el estado del organismo al checkpoint
+  pre-modificación, y el rollback queda en el linaje.
+* **El linaje deja de ser pasivo**: génesis, modificaciones aceptadas y
+  rollbacks se registran en `LineageState` y como eventos en storage.
+* **Los mandos se alcanzan por closures** para no acoplar `organism → world`.
+
+Y lo que ese lazo puede mover son **dos parámetros de comportamiento del
+runner**. Todo el aparato —constitución, sandbox, posterior, gate, ventana,
+rollback, linaje— gobierna un límite de recuperación de memoria y un modo de
+filtrado.
+
+Eso no es una crítica: es la medida de la distancia entre el mecanismo y su
+carga útil actual.
+
+## 8.3 · La partición mutable/inmutable ya está declarada
+
+`self_modification.py` fija de antemano qué puede tocarse
+([:15](runtime/organism/self_modification.py:15),
+[:23](runtime/organism/self_modification.py:23)):
+
+```
+MUTABLES (primera fase)          INMUTABLES (aprobación superior)
+  transport_parameters             baseline_semantics
+  selection_policy                 constitutional_invariants
+  benchmark_policy_experimental    baseline_fixed
+  reasoning_activation_policy      constitutional_purity_minimum
+  memory_scoring_secondary_weights lineage_identity_anchor
+  analogical_lab_parameters
+```
+
+Ocho etapas, de `proposal_generation` a `lineage_update`, con
+`accept | quarantine | reject` en el medio
+([:90](runtime/organism/self_modification.py:90)).
+
+**La partición es la pieza que un integrador necesitaría** y ya existe: dice qué
+clase de cosa puede cambiar sin aprobación superior. Lo que no dice es cómo
+entraría un programa, porque ninguna de las seis lo es.
+
+## 8.4 · Qué persiste, y en qué unidad
+
+`OrganAdaptiveState` ([adaptive_state.py:20](runtime/organism/adaptive_state.py:20))
+es el estado longitudinal por `(organism_id, lineage_id, regime_id, organ_id,
+backend_id)`: participación, abstención, aceptación, rechazo, residuo de
+calibración, desacuerdo causal, latencias, coste, fallbacks, permanencia en
+régimen, indicadores de cambio de punto.
+
+Es **contabilidad de comportamiento del órgano**, no contenido aprendido. Y
+encaja con §V: los pesos no se mueven, el estado recurrente sí persiste, y nadie
+le da error a la red.
+
+Las acciones de adaptación admisibles son cuatro y están cerradas:
+`collect_more_evidence · replay_candidate · hold · quarantine_candidate`.
+Ninguna instala nada.
+
+## 8.5 · El «sin regresión» existe, y está del lado aislado
+
+El contrato pide, para el Retention Ledger: qué registra, unidad de capacidad,
+línea base, tolerancias, presupuesto global de degradación, dependencias
+causales, retiro condicionado, recertificación, linaje.
+
+**No existe ninguna clase `RetentionLedger` en el árbol.** Lo que existe es
+`lab/genesis/retention/` ([__init__.py:3](lab/genesis/retention/__init__.py:3)):
+
+```
+RetentionAuditPackage · RetentionSurface
+BaselineMeasurementReceipt · RetentionDecisionReceipt · RetentionVerdict
+RetentionReverificationRequest        ← recertificación
+RetentionObservationReceipt           ← medición observada, payload externo
+EpistemicStateRef · RetentionEpistemicView · RetentionSurfaceAssessment
+RuleAStar · RetentionEvaluation
+RetentionFamilyPolicy                 ← presupuesto global: `epsilon_family_total`
+RetentionReplay
+```
+
+La unidad es `capability_id`; el presupuesto global de degradación es
+`epsilon_family_total` ([family.py:9](lab/genesis/retention/family.py:9)), con
+una política agregada **conservadora: «los miembros no concluyentes nunca se
+omiten»**.
+
+**Y `runtime/` no lo consume: cero ficheros.** Sus únicos consumidores son sus
+seis módulos hermanos y ocho tests.
+
+> Es la misma frontera que el Atlas 05: el mecanismo que decidiría si una
+> capacidad puede integrarse **sin regresión** está construido, y está del lado
+> que no toca al organismo.
+
+## 8.6 · La respuesta, en una frase
+
+Para convertir una receta `PROMOTED` en capacidad del organismo harían falta
+tres cosas, y **sólo una existe**:
+
+```
+1. un TIPO de destino que acepte un programa        NO EXISTE
+   (MODEL_PARAMETER es para pesos y arquitectura, y está vacía)
+2. un canal de escritura con procedencia            EXISTE — apply_parameter_intent
+3. un juicio de no-regresión                        EXISTE — lab/genesis/retention,
+                                                     sin consumidor en runtime
+```
+
+El lazo ρₜ demuestra que 2 y 3 **pueden** funcionar juntos: aplica sobre mandos
+reales, vigila ΔIoC y revierte. Lo hace con escalares porque es lo único que hay
+del otro lado.
+
+## 8.7 · Lo que no se sabe
+
+1. **K2** · Si la ranura `MODEL_PARAMETER` se dejó vacía esperando los seis
+   coeficientes de N4 (§V) o cualquier artefacto promovible. El código declara
+   la clase y no dice para qué.
+2. **K1** · El contrato de conocimiento nombra reparaciones abiertas —CI-VERDAD,
+   atomicidad, autoridad de writers— que **no aparecen en ningún árbol**:
+   `CI-VERDAD` da 0 coincidencias en genesis-v2 **y** en v16. `CADENA-CAUSAL` sí
+   existe, en `canon/provisional/ROADMAP_RNFE_v2.md` —provisional, no
+   normativo—. O viven sólo en la conversación, o tienen otro nombre en código.
+3. **K2** · Si la partición mutable/inmutable de `self_modification` está
+   alineada con las nueve clases de `parameters.py`. Son dos taxonomías de lo
+   que puede cambiar, escritas en sitios distintos, y nadie las ha cruzado.
+4. **K3** · Qué significaría «sin regresión» para una capacidad que el organismo
+   no tenía. La retención mide degradación contra una línea base; una capacidad
+   nueva no tiene línea base que degradar.

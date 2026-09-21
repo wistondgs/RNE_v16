@@ -2,7 +2,7 @@
   "schema_version": "genesis.docs.cartography-manifest/v1",
   "document": "docs/CARTOGRAFIA_GENESIS_01.md",
   "written_at": "2026-09-21",
-  "head": "23947ff",
+  "head": "602516d",
   "trees": {
     "v16": "/home/wis/Desarrollo/RNE_v16",
     "v15": "/home/wis/dev/rnfe.v15"
@@ -81,6 +81,18 @@
         "lab/genesis/acquisition/dsl.py": "b4df21d01cad02d78a5e398a44a4282338a284c5550a28dd1fb6c6b8b041883c",
         "lab/genesis/acquisition/synthesis.py": "058ca9b146e8917ca70f3c2c6388bb2686aaf1d8ccd9335af9463531fd721e5c",
         "lab/genesis/evidence/ledger.py": "54575f7dbbfc7d3e58b4ada5482b917945bac80c63a3d2d1a2943adcd1ad02b5"
+      }
+    },
+    "VIII · RNE · qué persiste, qué puede cambiar, y qué tendría que tocar Genesis · Atlas 06": {
+      "files": {
+        "canon/provisional/ROADMAP_RNFE_v2.md": "03201fff61987672e5236eb8734a8553bb63756221f23d92a4d06df510fe75a7",
+        "lab/genesis/retention/__init__.py": "a3941e5ee5d2a2d0447222d11743d6f807e5a92775de9eb2ce2fa862cc9e9686",
+        "lab/genesis/retention/family.py": "8e19570291506d8d0b8dc53a99667aa67787d54454e1870446abe7357e68ff6c",
+        "runtime/organism/adaptive_state.py": "386ab860cf797f3b8ac228d0e934aa9e2b2d593b056d697989280c63229c299b",
+        "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",
+        "runtime/organism/self_modification.py": "3d5ef7efad52785da056f6d99fc32c2334c45092f3f012a95cd6dad881c05f7b",
+        "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41",
+        "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907"
       }
     }
   }
