@@ -580,3 +580,93 @@ del otro lado.
 4. **K3** · Qué significaría «sin regresión» para una capacidad que el organismo
    no tenía. La retención mide degradación contra una línea base; una capacidad
    nueva no tiene línea base que degradar.
+
+---
+
+# IX · Atlas 07 · El canon como autoridad · lado Genesis
+
+Lectura del 2026-09-21. La otra mitad de este volumen está en §XLIV de
+`CARTOGRAFIA_TERRARIO_01.md`: allí se arbitra la autoridad sobre **afirmaciones
+científicas**; aquí, sobre **el organismo y su canon**.
+
+## 9.1 · El canon existe, está versionado, y no lo lee ningún programa
+
+`AGENTS.md:23` declara: «`canon/normative/` is the normative source of truth for
+RNFE». Los once documentos llevan frontmatter con `status`, `version`, `owner`,
+`depends_on` y `supersedes`
+([RUNTIME_SSOT_v1.md:2](canon/normative/RUNTIME_SSOT_v1.md:2)), repartidos en
+cuatro estantes: 7 normativos, 1 provisional, 4 experimentales, 1 histórico.
+
+**Y ningún código lo parsea.** Ocho ficheros mencionan `canon/`, todos en
+comentarios y docstrings que lo citan como justificación. No hay gate que
+compruebe que el código respeta el canon, ni que el canon describa el código.
+
+Eso no lo invalida: lo sitúa. **El canon es autoridad documental sostenida por
+disciplina de citación**, y la citación en comentarios es el único mecanismo que
+la conecta con el código.
+
+## 9.2 · Un documento archivado se declara normativo
+
+El estante y el campo no coinciden:
+
+```
+canon/historical/CANON_RNFE_v3_1.md:3      status: normative
+```
+
+Un documento **archivado como histórico** se declara **normativo** en su propio
+frontmatter ([:3](canon/historical/CANON_RNFE_v3_1.md:3)). Como nada parsea el
+canon, nada decide cuál de las dos señales gana: la carpeta o el campo.
+
+Es pequeño y es exactamente la clase de conflicto que el volumen busca — dos
+señales sobre lo mismo, ninguna instancia que adjudique.
+
+## 9.3 · El caso completo · `no_interference`
+
+Es el mejor ejemplo del proyecto de una cadena de autoridad rota y **bien
+documentada**, y por eso va entero:
+
+1. **El canon lo nombra y no lo define.** «no interferencia» aparece en
+   `canon/experimental/` y en `canon/provisional/`, y **nada en
+   `canon/normative/` fija un criterio computable**.
+2. **El esquema lo exige.** `no_interference INTEGER NOT NULL`
+   ([sqlite_store.py:186](runtime/storage/backends/sqlite_store.py:186)), con su
+   equivalente en Postgres.
+3. **El organismo lo afirma.** El campo nace `True` por defecto.
+4. **Nadie lo lee.** Barrido: todas las apariciones son persistencia o
+   round-trip. Ningún consumidor decide nada con él.
+5. **El código se niega a fingirlo.** El registro lleva una advertencia
+   explícita —*«NO CONFIAR EN ESTE VALOR»*
+   ([records.py:134](runtime/storage/records.py:134))— y declara que es «una
+   AFIRMACIÓN FALSA guardada en el ledger: el organismo declara que esta memoria
+   no interfiere con otras sin haberlo verificado».
+6. **Y estampa su propio desmentido.**
+   ([facade.py:446](runtime/storage/facade.py:446)) escribe
+   `metadata={"no_interference_computed": False}` junto al campo que lo afirma.
+
+**El ledger transporta a la vez la afirmación y su desmentido.** La decisión
+pendiente está escrita: o se define el criterio y se computa, o se retira la
+columna — y migrar a nullable es caro porque es `NOT NULL`.
+
+Lo notable no es el defecto: es que **la cadena entera está nombrada**. Canon
+que no define, esquema que obliga, organismo que afirma, nadie que lee, código
+que avisa. Esa es la forma que debería tener toda incoherencia conocida.
+
+## 9.4 · Dónde sí hay una autoridad ejecutada
+
+Una sola, y es de este árbol: **un único punto materializa un parámetro
+adaptativo** (§III). Las cuatro fuentes producen intenciones; `apply_parameter_intent`
+valida el conjunto entero antes de escribir nada y deja ledger con procedencia y
+hashes de Λ.
+
+Es el contraejemplo útil: cuando la autoridad se ejecuta en vez de declararse,
+produce un registro que se puede auditar sin creerle a nadie.
+
+## 9.5 · Lo que no se sabe
+
+1. **K2** · Qué gana cuando el estante y el `status` discrepan. Nada lo decide
+   y el caso ya existe.
+2. **K2** · Cuántas afirmaciones más del tipo `no_interference` hay en el ledger:
+   columnas que persisten una propiedad que nadie computa. Se sabría barriendo
+   los campos booleanos del esquema contra sus lectores.
+3. **K1** · Si los once documentos del canon describen el código vigente.
+   Ninguno tiene gate; el `depends_on` del frontmatter no se comprueba.

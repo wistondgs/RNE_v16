@@ -2,7 +2,7 @@
   "schema_version": "genesis.docs.cartography-manifest/v1",
   "document": "docs/CARTOGRAFIA_GENESIS_01.md",
   "written_at": "2026-09-21",
-  "head": "602516d",
+  "head": "db07fa9",
   "trees": {
     "v16": "/home/wis/Desarrollo/RNE_v16",
     "v15": "/home/wis/dev/rnfe.v15"
@@ -93,6 +93,15 @@
         "runtime/organism/self_modification.py": "3d5ef7efad52785da056f6d99fc32c2334c45092f3f012a95cd6dad881c05f7b",
         "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41",
         "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907"
+      }
+    },
+    "IX · Atlas 07 · El canon como autoridad · lado Genesis": {
+      "files": {
+        "canon/historical/CANON_RNFE_v3_1.md": "1597340ca2bc09cfd0a3b880768df089795db336f236088024391a72a89243d2",
+        "canon/normative/RUNTIME_SSOT_v1.md": "d062a18e922b563923ff3f50669d093a428dd549ecca6f7239ea063bf26331d2",
+        "runtime/storage/backends/sqlite_store.py": "4127052094e460b8e3b221e9a034585771c7e07d8cde56cc3e307aa028a2fbbf",
+        "runtime/storage/facade.py": "5c9c7b5d1c1396bc897d4ce42415c9751fa6a82876c3191f87333f56a8090355",
+        "runtime/storage/records.py": "319f41d8ec56ad1bf7ef91e3ef957452b7857b26c819948ad1068238c90d83f3"
       }
     }
   }
