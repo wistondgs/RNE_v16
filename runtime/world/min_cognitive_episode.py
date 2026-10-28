@@ -9,8 +9,10 @@ from typing import Any, Dict
 from uuid import uuid4
 
 from runtime.certification.promotion_gate import PromotionGate
+from runtime.certification.transfer_assessment import retrieval_metrics_from_hits
 from runtime.lotf import LOTFMin
 from runtime.memory.mfm_lite.retrieval import MemoryRetrieval
+from runtime.reality.belief_state import BeliefState, build_belief_state, compute_belief_shift
 from runtime.reasoning.context import build_reasoning_context, resolve_reasoning_mode
 from runtime.reasoning.scheduler_meta.meta_scheduler import MetaScheduler
 from runtime.smg import SMGMin
@@ -48,6 +50,8 @@ class MinimalCognitiveEpisodeRunner:
         self.promotion_gate = PromotionGate(storage=self.storage)
         self.eml_mode = os.environ.get("RNFE_EML_MODE", "disabled").strip().lower()
         self.eml_runner = EMLRunner(storage=self.storage)
+        # P9.6 — este runner ni siquiera construía belief_state: certificaba a ciegas.
+        self._previous_belief: BeliefState | None = None
 
     def _build_eml_dataset(
         self,
@@ -209,9 +213,35 @@ class MinimalCognitiveEpisodeRunner:
             "artifact": asdict(artifact),
             "run_id": self.run_id,
         }
+        # P9.6 (paso 1) — MEDIR, NO FABRICAR. Este runner certificaba sin belief_state
+        # siquiera: `assess_transfer` no encontraba `episode_result["belief_state"]` y caía
+        # en los rellenos favorables (policy=0.5, causal=0.5, kl=0.0). Ahora el episodio
+        # construye su creencia y, cuando hay episodio previo, mide el SHIFT contra él.
+        #
+        # Lo que NO se puede obtener honestamente acá y por lo tanto NO se inventa:
+        #   - `transition_vector`: exige el episodio anterior COMPLETO y un
+        #     `CompatibilityAssessment`; este runner mínimo no conserva el anterior ni tiene
+        #     perfil estructural cargado. Queda ausente ⇒ la pureza la mide `assess_transfer`
+        #     con las métricas de retrieval del propio episodio (paso 5).
+        #   - `reality_assessment`: nadie lo construye en este camino.
+        current_belief = build_belief_state(episode_result=episode_result)
+        belief_prior = self._previous_belief
+        episode_result["belief_state"] = {
+            "prior": asdict(belief_prior) if belief_prior else None,
+            "posterior": asdict(current_belief),
+        }
+        self._previous_belief = current_belief
+        belief_shift = (
+            compute_belief_shift(prior=belief_prior, posterior=current_belief)
+            if belief_prior is not None
+            else None  # primer episodio: no hay prior. Ausencia, no un cero favorable.
+        )
+
         certification = self.promotion_gate.process_episode(
             run_id=self.run_id,
             episode_result=episode_result,
+            belief_shift=belief_shift,
+            retrieval_metrics=retrieval_metrics_from_hits(memory_hits),
         )
         eml_shadow = {"enabled": False, "status": "disabled"}
         if self.eml_mode == "shadow":

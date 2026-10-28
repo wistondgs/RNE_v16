@@ -32,7 +32,6 @@ from .scenario import (
     ScenarioObservation,
     ScenarioTransition,
 )
-from runtime.symbolic.mci import TransitionCompiler, deferred_load_spec
 
 
 @dataclass
@@ -70,15 +69,6 @@ class DeferredLoadScenario(CognitiveScenario):
         self._shed_effect = shed_effect
         self._boost_debt = boost_debt
         self._shed_debt = shed_debt
-        self._transition_compiler = TransitionCompiler(
-            deferred_load_spec(
-                alarm_threshold=alarm_threshold,
-                boost_effect=boost_effect,
-                shed_effect=shed_effect,
-                boost_debt=boost_debt,
-                shed_debt=shed_debt,
-            )
-        )
         self._state = DeferredLoadState(
             load=initial_load,
             debt=0.0,
@@ -196,21 +186,26 @@ class DeferredLoadScenario(CognitiveScenario):
         intervention: str,
         external_input: float,
     ) -> DeferredLoadState:
-        result = self._transition_compiler.execute(
-            {
-                "load": state.load,
-                "debt": state.debt,
-                "boosting": state.boosting,
-                "alarm": state.alarm,
-            },
-            action=intervention,
-            external_input=external_input,
-        )
+        boosting = state.boosting
+        load_delta = 0.0
+        debt_delta = 0.0
+        if intervention == "boost_throughput":
+            boosting = True
+            load_delta = -self._boost_effect
+            debt_delta = +self._boost_debt
+        elif intervention == "shed_load":
+            boosting = False
+            load_delta = -self._shed_effect
+            debt_delta = -self._shed_debt
+
+        next_debt = max(0.0, min(1.0, state.debt + debt_delta))
+        # La deuda acumulada empuja la carga hacia arriba: consecuencia diferida.
+        next_load = max(0.0, min(1.0, state.load + external_input + load_delta + next_debt))
         return DeferredLoadState(
-            load=float(result["load"]),
-            debt=float(result["debt"]),
-            boosting=bool(result["boosting"]),
-            alarm=bool(result["alarm"]),
+            load=next_load,
+            debt=next_debt,
+            boosting=boosting,
+            alarm=next_load >= self._alarm_threshold,
         )
 
     def factual_transition(

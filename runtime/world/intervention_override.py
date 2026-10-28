@@ -38,7 +38,6 @@ def is_actuation_enabled() -> bool:
 # Familias que producen una intervención CONCRETA (no solo señal de conflicto).
 # Orden de prioridad como "driver" del override.
 _CONCRETE_RECOMMENDERS: Tuple[Tuple[str, str], ...] = (
-    ("mci", "mci_first_action"),
     ("opt", "opt_intervention"),
     ("plan", "plan_first_action"),
     ("ind", "ind_best_intervention"),
@@ -54,10 +53,9 @@ class OverrideDecision:
     guard_reason: str = ""
     margin_gain: float = 0.0
     conflict: bool = False
-    simulated_horizon: int | None = None
 
     def to_dict(self) -> dict:
-        payload = {
+        return {
             "fired": self.fired,
             "driver_family": self.driver_family,
             "from_intervention": self.from_intervention,
@@ -66,16 +64,6 @@ class OverrideDecision:
             "margin_gain": round(float(self.margin_gain), 6),
             "conflict": self.conflict,
         }
-        if self.simulated_horizon is not None:
-            payload["simulated_horizon"] = int(self.simulated_horizon)
-        return payload
-
-
-@dataclass(frozen=True)
-class RolloutAssessment:
-    objective: float
-    invariant_violations: Tuple[str, ...] = ()
-    status: str = "sat"
 
 
 def _norm(value: Any) -> str:
@@ -195,9 +183,6 @@ def evaluate_override(
     direction: str,
     factual_value: float,
     simulate_value: Callable[[str], float],
-    candidate_sequence: Sequence[str] | None = None,
-    baseline_sequence: Sequence[str] | None = None,
-    simulate_rollout: Callable[[Sequence[str]], RolloutAssessment] | None = None,
 ) -> OverrideDecision:
     """Decide si la deliberación debe sobre-escribir la acción greedy.
 
@@ -221,75 +206,6 @@ def evaluate_override(
         )
 
     driver, candidate = pick
-    if (
-        driver == "mci"
-        and simulate_rollout is not None
-        and candidate_sequence is not None
-        and len(candidate_sequence) > 1
-    ):
-        candidate_actions = tuple(candidate_sequence[:5])
-        if candidate_actions[0] != candidate:
-            return OverrideDecision(
-                fired=False,
-                driver_family=driver,
-                from_intervention=greedy_intervention,
-                to_intervention=candidate,
-                guard_reason="plan_first_action_mismatch",
-                conflict=True,
-                simulated_horizon=len(candidate_actions),
-            )
-        baseline_actions = tuple(
-            (baseline_sequence or (greedy_intervention,) * len(candidate_actions))[
-                : len(candidate_actions)
-            ]
-        )
-        if len(baseline_actions) != len(candidate_actions):
-            return OverrideDecision(
-                fired=False,
-                driver_family=driver,
-                from_intervention=greedy_intervention,
-                to_intervention=candidate,
-                guard_reason="baseline_horizon_mismatch",
-                conflict=True,
-                simulated_horizon=len(candidate_actions),
-            )
-        candidate_rollout = simulate_rollout(candidate_actions)
-        baseline_rollout = simulate_rollout(baseline_actions)
-        if candidate_rollout.status != "sat" or baseline_rollout.status != "sat":
-            return OverrideDecision(
-                fired=False,
-                driver_family=driver,
-                from_intervention=greedy_intervention,
-                to_intervention=candidate,
-                guard_reason="rollout_unsat",
-                conflict=True,
-                simulated_horizon=len(candidate_actions),
-            )
-        if candidate_rollout.invariant_violations:
-            return OverrideDecision(
-                fired=False,
-                driver_family=driver,
-                from_intervention=greedy_intervention,
-                to_intervention=candidate,
-                guard_reason="future_invariant_violation",
-                conflict=True,
-                simulated_horizon=len(candidate_actions),
-            )
-        gain = baseline_rollout.objective - candidate_rollout.objective
-        return OverrideDecision(
-            fired=gain > 1e-6,
-            driver_family=driver,
-            from_intervention=greedy_intervention,
-            to_intervention=candidate,
-            guard_reason=(
-                "guard_passed_multistep"
-                if gain > 1e-6
-                else "no_multistep_improvement"
-            ),
-            margin_gain=gain,
-            conflict=True,
-            simulated_horizon=len(candidate_actions),
-        )
     candidate_value = simulate_value(candidate)
     ok, reason, gain = guard_candidate(
         direction=direction,

@@ -39,6 +39,19 @@ def _payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
+# B2 - created_at de memory_records es TEXT ISO-8601 UTC; se castea a timestamptz
+# para medir el TTL. Edad en segundos = now() - created_at.
+_MEMORY_AGE_SECONDS_SQL = "EXTRACT(EPOCH FROM (now() - created_at::timestamptz))"
+# Condicion "NO expirada" para filtrar en lectura (ttl NULL = sin expiracion).
+_MEMORY_NOT_EXPIRED_SQL = (
+    f"(ttl_seconds IS NULL OR {_MEMORY_AGE_SECONDS_SQL} <= ttl_seconds)"
+)
+# Condicion "expirada" para purgar.
+_MEMORY_EXPIRED_SQL = (
+    f"ttl_seconds IS NOT NULL AND {_MEMORY_AGE_SECONDS_SQL} > ttl_seconds"
+)
+
+
 class PostgresStorageBackend(StorageBackend):
     """Store transaccional principal en PostgreSQL."""
 
@@ -336,6 +349,9 @@ class PostgresStorageBackend(StorageBackend):
     def upsert_session_bridge(
         self, record: SessionBridgeRecord
     ) -> SessionBridgeRecord:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -361,6 +377,9 @@ class PostgresStorageBackend(StorageBackend):
         return record
 
     def get_session_bridge(self, session_id: str) -> SessionBridgeRecord | None:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -789,6 +808,8 @@ class PostgresStorageBackend(StorageBackend):
         if min_ioc_proxy is not None:
             clauses.append("ioc_proxy >= %s")
             params.append(min_ioc_proxy)
+        # B2 - Aplicar TTL en lectura: excluir memorias expiradas.
+        clauses.append(_MEMORY_NOT_EXPIRED_SQL)
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY created_at DESC LIMIT %s"
@@ -813,6 +834,19 @@ class PostgresStorageBackend(StorageBackend):
             )
             for row in rows
         ]
+
+    def purge_expired_memory_records(self) -> int:
+        """B2 - Borra las memorias expiradas (now > created_at + ttl_seconds).
+
+        Devuelve la cantidad de filas borradas. ttl_seconds NULL nunca expira.
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM memory_records WHERE {_MEMORY_EXPIRED_SQL}"
+            )
+            deleted = cur.rowcount
+            conn.commit()
+        return int(deleted)
 
     def write_transfer_assessment(
         self, assessment: TransferAssessmentRecord,

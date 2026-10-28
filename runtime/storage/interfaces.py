@@ -83,12 +83,22 @@ class ArtifactIndexStore(Protocol):
 
 @runtime_checkable
 class SessionStore(Protocol):
+    """Capacidad reservada (B23): session bridge implementado en toda la capa de
+    storage pero SIN productores/consumidores en el runtime actual. No remover sin
+    decision de producto."""
+
     def upsert_session_bridge(
         self, record: SessionBridgeRecord
     ) -> SessionBridgeRecord:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         ...
 
     def get_session_bridge(self, session_id: str) -> SessionBridgeRecord | None:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         ...
 
 
@@ -160,6 +170,10 @@ class MemoryStore(Protocol):
         min_ioc_proxy: float | None = None,
         limit: int = 50,
     ) -> list[MemoryRecord]:
+        ...
+
+    def purge_expired_memory_records(self) -> int:
+        """Borra las memorias expiradas (TTL) y devuelve la cantidad borrada."""
         ...
 
 

@@ -8,8 +8,13 @@ from uuid import uuid4
 from runtime.memory.mfm_lite import EpisodeMemoryStore, MFMCondenser, MacroPromotion
 from runtime.organism.court_runtime import ConstitutionalCourtRuntime
 from runtime.organism.t5_mode import get_t5_mode
+from runtime.reality.collapse import CollapseDetector
 from runtime.reality.evaluator import evaluate_episode_closure
 from runtime.storage import StorageFacade
+
+# P9.6 paso 4 — ventana de historia para el detector de colapso. `CollapseDetector` exige
+# una RACHA (streak=3) de continuidad bajo umbral: un bache aislado no es un colapso.
+_COLLAPSE_HISTORY = 3
 
 from .certificate_builder import CertificateBuilder
 from .coherence_obstruction import CoherenceObstructionTracker
@@ -23,6 +28,9 @@ class PromotionGate:
         self.storage = storage
         self.builder = CertificateBuilder(storage=storage)
         self.continuity_guard = ContinuityGuard()
+        # P9.6 paso 4: el detector de colapso del propio repo (`runtime/reality/collapse.py`),
+        # que hasta ahora solo usaba el BENCH. El camino vivo no lo llamaba nunca.
+        self.collapse_detector = CollapseDetector()
         self.ioc_proxy = IoCProxy()
         self.risk_tracker = EpisodeRiskTracker(storage=storage)
         self.omega_tracker = CoherenceObstructionTracker(storage=storage)
@@ -39,7 +47,22 @@ class PromotionGate:
         reality_assessment=None,
         compatibility=None,
         transition_vector=None,
+        belief_shift=None,
+        retrieval_metrics: Dict[str, Any] | None = None,
+        organism_state=None,
     ) -> Dict[str, Any]:
+        """Certifica un episodio.
+
+        P9.6 (paso 1 — CABLEAR): ``belief_shift`` y ``retrieval_metrics`` se suman a los
+        insumos que el gate ya aceptaba pero que NADIE le pasaba en el camino vivo
+        (``compatibility``/``transition_vector``/``reality_assessment``). Con los insumos
+        ausentes, ``assess_transfer`` los rellenaba con valores FAVORABLES —
+        ``memory_purity=1.0``, ``stability=1.0``, ``kl=0.0`` — y ningún detector podía
+        contradecirlos: el organismo se auto-certificaba sano por falta de datos.
+
+        Todos siguen siendo opcionales: un dato ausente es AUSENCIA (se registra), no un
+        número inventado. Ver ``TransferAssessment.unmeasured_fields``.
+        """
         episode = episode_result.get("episode", {})
 
         # Extract scenario_metadata with fallback
@@ -58,7 +81,10 @@ class PromotionGate:
             storage=self.storage, run_id=run_id, result=episode_result,
             closure_profile=closure_profile,
         )
-        previous = self.storage.list_episode_certificates(run_id=run_id, limit=1)
+        # P9.6 paso 4: se traen los últimos N (no 1) — el detector de colapso necesita RACHA.
+        previous = self.storage.list_episode_certificates(
+            run_id=run_id, limit=_COLLAPSE_HISTORY
+        )
         previous_certificate = previous[0] if previous else None
         fallback_continuity = (
             float(reality_assessment.continuity_score) if reality_assessment is not None else None
@@ -69,9 +95,45 @@ class PromotionGate:
             fallback_continuity=fallback_continuity,
         )
         continuity_alert = self.continuity_guard.has_alert(continuity)
-        collapse_detected = bool(
-            getattr(reality_assessment, "collapse_detected", False)
+
+        # ── P9.6 paso 4 — EL ORGANISMO PUEDE DETECTAR SU PROPIO COLAPSO ──────────
+        # Antes:
+        #     collapse_detected = bool(getattr(reality_assessment, "collapse_detected", False))
+        # y en producción `reality_assessment` es SIEMPRE None (nadie lo construye en el
+        # camino vivo: solo lo arma el bench, `runtime/reality/service.py`). O sea:
+        # `collapse_detected` era SIEMPRE False. Y es el ÚNICO que gatea el veredicto
+        # (`certificate_builder.py:55`). El organismo era estructuralmente incapaz de
+        # detectar su propio colapso: la única compuerta que tenía estaba ciega.
+        #
+        # Ahora se ejecuta el detector REAL del repo con los datos que este gate YA TIENE
+        # medidos (no hay ningún dato nuevo que inventar):
+        #   - closure_passed / trace_integrity: de `evaluate_episode_closure` (arriba).
+        #   - continuity: del `ContinuityGuard` (arriba).
+        #   - historia: los últimos certificados de la corrida. `CollapseDetector` solo lee
+        #     `.continuity_score`, que `EpisodeCertificateRecord` expone. En el camino vivo
+        #     NADIE escribe `RealityAssessmentRecord`s, así que los certificados son la
+        #     única historia de continuidad que existe — y es real.
+        #
+        # POR QUÉ ESTO NO RECHAZA EPISODIOS SANOS (la pregunta que exige el paquete):
+        # `CollapseDetector.detect` da True en dos casos:
+        #   (a) `not closure_passed or not trace_integrity` → esos episodios YA eran
+        #       `rejected` por el propio veredicto (`certified if closure and trace and not
+        #       collapse`). No agrega NINGÚN rechazo nuevo; solo hace visible el motivo.
+        #   (b) continuidad < 0.35 sostenida en RACHA (3 episodios) → único rechazo NUEVO.
+        #       Un episodio sano tiene continuidad ≈ 0.98: no se le acerca. Y un bache
+        #       aislado tampoco alcanza: hace falta que el organismo esté realmente roto,
+        #       tres episodios seguidos.
+        #
+        # El `reality_assessment` explícito (camino del bench) se respeta y se une con OR:
+        # si el bench ya dictaminó colapso, no lo contradecimos.
+        declared_collapse = bool(getattr(reality_assessment, "collapse_detected", False))
+        measured_collapse = self.collapse_detector.detect(
+            closure_passed=closure["closure_passed"],
+            trace_integrity=closure["trace_integrity"],
+            continuity_score=continuity,
+            recent_assessments=previous,
         )
+        collapse_detected = declared_collapse or measured_collapse
         uncertainty = float(episode.get("context", {}).get("uncertainty", 0.2))
         ioc_value = self.ioc_proxy.compute(
             continuity_score=continuity,
@@ -108,11 +170,18 @@ class PromotionGate:
             episode_result=episode_result,
             compatibility=compatibility,
             transition_vector=transition_vector,
+            belief_shift=belief_shift,
+            retrieval_metrics=retrieval_metrics,
         )
         t5_mode = get_t5_mode()
+        # D-047: se reenvía el estado autoritativo para que el tribunal OBSERVE
+        # en vez de acuñar una segunda transición fisiológica. Explícito y no por
+        # una clave más en `episode_result`: así queda auditable quién le dio la
+        # fisiología al tribunal.
         t5_result = self.court_runtime.ingest_episode(
             run_id=run_id,
             episode_result=episode_result,
+            organism_state=organism_state,
         )
         transfer_metadata = {
             "compatibility_class": transfer.compatibility_class,
@@ -125,6 +194,34 @@ class PromotionGate:
             "lower_confidence_bound": transfer.lower_confidence_bound,
             "certificate_scope": transfer.certificate_scope,
             "failure_mode_count": transfer.failure_mode_count,
+            # P9.6 — las patologías entran al certificado con NOMBRE y severidad, no como un
+            # contador mudo. Siguen siendo METADATA: no gatean veredicto ni candidatura
+            # (decisión conservadora explícita del paquete). Lo que cambia es que ahora son
+            # alcanzables y se evalúan también en episodios locales.
+            "failure_modes": [
+                {
+                    "mode": m.mode,
+                    "severity": m.severity,
+                    "evidence_score": m.evidence_score,
+                    "description": m.description,
+                }
+                for m in transfer.failure_modes
+            ],
+            "failure_mode_scope": transfer.failure_mode_scope,
+            "detector_checks_applied": list(transfer.detector_checks_applied),
+            # P9.6 paso 5 — la ausencia viaja CON el certificado. `memory_purity_score: null`
+            # ya no puede leerse como 1.0 por quien lo consuma (ver `vitals.py`), y
+            # `memory_purity_basis` dice si el 1.0 se ganó midiendo o si no hubo siquiera
+            # oportunidad de contaminarse.
+            "unmeasured_fields": list(transfer.unmeasured_fields),
+            # B85 — el TERCER estado viaja con el certificado. `not_applicable_fields` no es
+            # un agujero (eso es `unmeasured_fields`): es un eje SIN SUJETO — con cero hits no
+            # hay memoria que pueda estar contaminada. Sin esta clave, el consumidor
+            # (`runtime/life/vitals.py`) solo puede leer el 1.0 vacuo como si fuera una
+            # medición, y la compuerta del refugio lo cuenta como eje VERIFICADO. Lo era: una
+            # verificación que nunca ocurrió.
+            "not_applicable_fields": list(transfer.not_applicable_fields),
+            "memory_purity_basis": transfer.memory_purity_basis,
         }
         causal_attestation = (episode.get("context") or {}).get("causal_attestation")
         if isinstance(causal_attestation, dict):

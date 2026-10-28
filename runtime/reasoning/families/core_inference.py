@@ -265,7 +265,10 @@ def _causal_mechanism(sig: Any, intervention: Any, expected_dir: Any) -> Optiona
         for edge in graph.get(node, []) or []:
             p = {"+": 1, "-": -1}.get(edge.get("polarity"), 0)
             npol = pol * p
-            nwmin = min(wmin, _num(edge.get("strength"), 1.0) or 1.0)
+            # Sin `or 1.0`: `_num` ya sustituye el ausente por 1.0, y el `or`
+            # convertía una fuerza MEDIDA de 0.0 —sin influencia causal— en la
+            # fuerza MÁXIMA, además de borrarla como cuello de botella del camino.
+            nwmin = min(wmin, _num(edge.get("strength"), 1.0))
             npath = path + [edge.get("target")]
             if edge.get("target") == "alarm":
                 best = {"path": npath, "path_polarity": npol, "path_strength": round(nwmin, 4)}
@@ -969,8 +972,11 @@ def calibrate(state: Mapping[str, Any]) -> Dict[str, Any]:
     ctf_sig = 0.9 if supports else (0.5 if supports is None else 0.2)
 
     ded_sig = 0.85 if state.get("ded_validated") else (0.6 if state.get("ded_conclusion") else 0.5)
-    certainty = 1.0 - _clamp(_num(feats.get("uncertainty"), 0.25) or 0.25)
-    prior_causal = _num(posterior_src.get("causal_support_confidence"), 0.5) or 0.5
+    # Sin `or`: `_num` ya cubre el ausente. El `or` convertía una incertidumbre
+    # MEDIDA de 0.0 —certeza perfecta— en 0.25, y un soporte causal MEDIDO de
+    # 0.0 —ninguno— en 0.5, o sea soporte moderado. Los dos ceros son medidas.
+    certainty = 1.0 - _clamp(_num(feats.get("uncertainty"), 0.25))
+    prior_causal = _num(posterior_src.get("causal_support_confidence"), 0.5)
 
     p = _clamp(
         0.25 * cau_sig

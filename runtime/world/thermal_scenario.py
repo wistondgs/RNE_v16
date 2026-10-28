@@ -18,7 +18,6 @@ from .scenario import (
     ScenarioObservation,
     ScenarioTransition,
 )
-from runtime.symbolic.mci import TransitionCompiler, thermal_spec
 
 
 @dataclass
@@ -56,12 +55,6 @@ class ThermalScenario(CognitiveScenario):
         """
         self._alarm_threshold = alarm_threshold
         self._cooling_effect = cooling_effect
-        self._transition_compiler = TransitionCompiler(
-            thermal_spec(
-                alarm_threshold=alarm_threshold,
-                cooling_effect=cooling_effect,
-            )
-        )
         self._state = ThermalWorldState(
             temperature=initial_temperature,
             cooling_active=False,
@@ -177,20 +170,20 @@ class ThermalScenario(CognitiveScenario):
         intervention: str,
         external_input: float,
     ) -> ThermalWorldState:
-        """Computa la transición mediante el IR compartido."""
-        result = self._transition_compiler.execute(
-            {
-                "temperature": state.temperature,
-                "cooling_active": state.cooling_active,
-                "alarm": state.alarm,
-            },
-            action=intervention,
-            external_input=external_input,
-        )
+        """Computa transición de estado."""
+        cooling_active = state.cooling_active
+        if intervention == "activate_cooling":
+            cooling_active = True
+        elif intervention == "deactivate_cooling":
+            cooling_active = False
+
+        cooling_delta = self._cooling_effect if cooling_active else 0.0
+        next_temp = max(0.0, min(1.0, state.temperature + external_input - cooling_delta))
+
         return ThermalWorldState(
-            temperature=float(result["temperature"]),
-            cooling_active=bool(result["cooling_active"]),
-            alarm=bool(result["alarm"]),
+            temperature=next_temp,
+            cooling_active=cooling_active,
+            alarm=next_temp >= self._alarm_threshold,
         )
 
     def factual_transition(

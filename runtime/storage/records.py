@@ -129,13 +129,46 @@ class PromotionDecisionRecord:
 
 @dataclass(slots=True)
 class MemoryRecord:
+    """Registro de memoria multiescala.
+
+    B24 — ADVERTENCIA sobre `no_interference`: **NO CONFIAR EN ESTE VALOR.**
+    """
+
     memory_id: str
     run_id: str
     episode_id: str
     scale: str
     structure_json: Dict[str, Any]
     ttl_seconds: Optional[int] = None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # B24: CAMPO NO COMPUTADO. NO CONFIAR EN ESTE VALOR.
+    #
+    # `no_interference` NO se mide ni se calcula en ningún lado: se escribe
+    # `True` por default de schema en TODOS los sitios de escritura
+    # (`runtime/memory/mfm_lite/episode_store.py:35,61,88`,
+    #  `runtime/organism/experience.py:221`, `runtime/storage/facade.py`).
+    # La columna es NOT NULL (`sqlite_store.py:186`, `postgres/schema.sql:127`).
+    #
+    # No hay NINGÚN consumidor en `runtime/`: nadie lo lee para decidir nada
+    # (los backends solo lo persisten y lo devuelven en el round-trip).
+    # Es decir: es una AFIRMACIÓN FALSA guardada en el ledger — el organismo
+    # declara "esta memoria no interfiere con otras" sin haberlo verificado.
+    #
+    # El canon lo lista como desiderátum de la memoria ("no interferencia",
+    # `canon/experimental/RNFE_blueprint_matematico_latex.md:649`;
+    # "no-interferencia", `canon/provisional/ROADMAP_RNFE_v2.md:201`) pero NO lo
+    # define operativamente en ningún lado, y nada en `canon/normative/` fija un
+    # criterio computable. Por eso NO se inventa una lógica que lo haga "parecer"
+    # computado: queda declarado como no computado.
+    #
+    # Pendiente de decisión (ver informe P9): o se define el criterio y se
+    # computa, o se retira la columna. Migrar a nullable es caro (NOT NULL).
+    # Hasta entonces: ningún consumidor debe tratar este campo como evidencia
+    # de que la memoria no interfiere.
+    # ─────────────────────────────────────────────────────────────────────────
     no_interference: bool = True
+
     certificate_id: Optional[str] = None
     ioc_proxy: Optional[float] = None
     support_count: int = 0

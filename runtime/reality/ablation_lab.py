@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 from uuid import uuid4
 
+from runtime.certification.trace_integrity import assess_trace_integrity
 from runtime.storage import get_storage
 from runtime.storage.records import utc_now_iso
 from runtime.world.registry import get_scenario, list_causal_signatures
@@ -204,7 +205,11 @@ def run_ablation_study(
                         morphism_score=morphism.overall_score,
                         memory_purity=belief.memory_purity_confidence,
                         transfer_stability=belief.composite_confidence,
-                        trace_integrity=True,
+                        # B77: era `True` HARDCODEADO — la misma mentira que P9/B1 mató en
+                        # `transfer_assessment`, viva en el laboratorio. El posterior la
+                        # premia (`trace_val` 1.0 en vez de 0.3), así que un episodio con la
+                        # traza rota se certificaba como si la tuviera intacta. Ahora se MIDE.
+                        trace_integrity=assess_trace_integrity(result["episode"]).integral,
                         policy_confidence=belief.policy_confidence,
                         causal_support=belief.causal_support_confidence,
                     )

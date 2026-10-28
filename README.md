@@ -1,4 +1,4 @@
-# RNFE v15
+# RNFE v16
 
 RNFE es un organismo cibernético digital autoevolutivo orientado a inteligencia general adaptable,
 con cierre triádico, continuidad identitaria, viabilidad dinámica, memoria viva multiescala, ecología

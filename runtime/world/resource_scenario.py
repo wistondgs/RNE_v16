@@ -18,7 +18,6 @@ from .scenario import (
     ScenarioObservation,
     ScenarioTransition,
 )
-from runtime.symbolic.mci import TransitionCompiler, resource_spec
 
 
 @dataclass
@@ -60,12 +59,6 @@ class ResourceScenario(CognitiveScenario):
         """
         self._scarcity_threshold = scarcity_threshold
         self._production_rate = production_rate
-        self._transition_compiler = TransitionCompiler(
-            resource_spec(
-                scarcity_threshold=scarcity_threshold,
-                production_rate=production_rate,
-            )
-        )
         self._state = ResourceWorldState(
             stock_level=initial_stock,
             production_active=False,
@@ -189,19 +182,20 @@ class ResourceScenario(CognitiveScenario):
             intervention: Intervención a aplicar.
             external_input: Consumo externo (reduce stock).
         """
-        result = self._transition_compiler.execute(
-            {
-                "stock_level": state.stock_level,
-                "production_active": state.production_active,
-                "scarcity_alert": state.scarcity_alert,
-            },
-            action=intervention,
-            external_input=external_input,
-        )
+        production_active = state.production_active
+        if intervention == "start_production":
+            production_active = True
+        elif intervention == "stop_production":
+            production_active = False
+
+        production_delta = self._production_rate if production_active else 0.0
+        # Consumo reduce, producción aumenta
+        next_stock = max(0.0, min(1.0, state.stock_level - external_input + production_delta))
+
         return ResourceWorldState(
-            stock_level=float(result["stock_level"]),
-            production_active=bool(result["production_active"]),
-            scarcity_alert=bool(result["scarcity_alert"]),
+            stock_level=next_stock,
+            production_active=production_active,
+            scarcity_alert=next_stock <= self._scarcity_threshold,
         )
 
     def factual_transition(

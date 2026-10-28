@@ -7,12 +7,10 @@ from pathlib import Path
 import pytest
 
 from runtime.storage import StorageConfig, StorageFactory
-from runtime.symbolic.mci import MCIPlanningConfig
 from runtime.world import ScenarioEpisodeRunner
 from runtime.world.grid_thermal_scenario import GridThermalScenario
 from runtime.world.intervention_override import (
     OverrideDecision,
-    RolloutAssessment,
     detect_structural_conflict,
     evaluate_override,
     family_recommendations,
@@ -129,54 +127,6 @@ class TestPureLogic:
         )
         assert decision.fired is False and decision.guard_reason == "no_improvement"
 
-    def test_multistep_guard_accepts_delayed_improvement(self):
-        state = {
-            "cau_link": {"helps_goal": False},
-            "mci_first_action": "shed_load",
-        }
-        rollouts = {
-            ("shed_load", "shed_load", "shed_load"): RolloutAssessment(0.20),
-            ("boost_throughput",) * 3: RolloutAssessment(0.45),
-        }
-        decision = evaluate_override(
-            reasoning_state=state,
-            allowed_interventions=["boost_throughput", "shed_load"],
-            greedy_intervention="boost_throughput",
-            direction="minimize",
-            factual_value=0.55,
-            simulate_value=lambda _: 0.60,
-            candidate_sequence=("shed_load", "shed_load", "shed_load"),
-            baseline_sequence=("boost_throughput",) * 3,
-            simulate_rollout=lambda actions: rollouts[tuple(actions)],
-        )
-        assert decision.fired is True
-        assert decision.guard_reason == "guard_passed_multistep"
-        assert decision.simulated_horizon == 3
-        assert decision.margin_gain == pytest.approx(0.25)
-
-    def test_multistep_guard_rejects_future_violation(self):
-        state = {
-            "cau_link": {"helps_goal": False},
-            "mci_first_action": "shed_load",
-        }
-        decision = evaluate_override(
-            reasoning_state=state,
-            allowed_interventions=["boost_throughput", "shed_load"],
-            greedy_intervention="boost_throughput",
-            direction="minimize",
-            factual_value=0.55,
-            simulate_value=lambda _: 0.60,
-            candidate_sequence=("shed_load", "shed_load"),
-            baseline_sequence=("boost_throughput", "boost_throughput"),
-            simulate_rollout=lambda actions: (
-                RolloutAssessment(0.20, ("alarm/t/2",))
-                if actions[0] == "shed_load"
-                else RolloutAssessment(0.45)
-            ),
-        )
-        assert decision.fired is False
-        assert decision.guard_reason == "future_invariant_violation"
-
 
 class TestShadowDiscipline:
     def test_disabled_by_default(self, monkeypatch):
@@ -199,39 +149,6 @@ class TestLiveConflictResolution:
         assert ov["fired"] is False
         assert ov["guard_reason"] == "no_family_recommendation"
         assert result["episode"]["context"]["intervention"] == "deactivate_cooling"
-
-    def test_multistep_mci_override_materializes_first_action(
-        self, tmp_path, monkeypatch
-    ):
-        monkeypatch.setenv("RNFE_REASONING_ACTUATES", "1")
-        runner = ScenarioEpisodeRunner(
-            scenario="deferred_load_trap",
-            storage=_storage(tmp_path),
-            run_id="mci-multistep-materialization",
-            family_profile="mci_integrated_v1",
-            mci_planning_config=MCIPlanningConfig(
-                horizon=3,
-                exact_horizon=True,
-                objective_mode="trajectory_loss",
-            ),
-        )
-        runner.run_episode(
-            external_input=0.04,
-            replay_unit_id="mci-multistep/ep-1",
-            trace_dir=tmp_path / "traces-1",
-        )
-        result = runner.run_episode(
-            external_input=0.04,
-            replay_unit_id="mci-multistep/ep-2",
-            trace_dir=tmp_path / "traces-2",
-        )
-
-        assert result["intervention_override"]["fired"] is True
-        assert result["intervention_override"]["guard_reason"] == (
-            "guard_passed_multistep"
-        )
-        assert result["intervention_override"]["simulated_horizon"] == 3
-        assert result["episode"]["context"]["intervention"] == "shed_load"
 
     @pytest.mark.parametrize("profile,driver", [
         ("core_plus_opt", "opt"),

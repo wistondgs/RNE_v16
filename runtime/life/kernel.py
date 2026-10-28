@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, List, Sequence
+from uuid import uuid4
 
 from runtime.organism.identity import (
     CausalContext,
@@ -19,6 +21,8 @@ from runtime.organism.state import IdentityState, OrganismState
 from runtime.conjunction import OperationalConjunctionLayer
 from runtime.conjunction.contracts import ComputeTier, OperationalConjunctionResult
 from runtime.conjunction.execution import routing_enforced, tier_execution_directives
+from runtime.core.checkpoint_kinds import LIFE_CHECKPOINT_KIND
+from runtime.neural import NeuralRuntimeConfig
 from runtime.storage import StorageFacade, get_storage
 from runtime.storage.records import utc_now_iso
 from runtime.world import ScenarioEpisodeRunner
@@ -37,10 +41,17 @@ from .serialization import lineage_from_payload, organism_from_payload
 from .supervisor import AutonomySupervisor, AutonomySupervisorConfig
 from .vitals import VitalSignsService
 
+logger = logging.getLogger(__name__)
+
 # B48: acciones que NO ejecutan episodio (las maneja la rama no-actuante de
 # ``step()``). Cualquier otra acción llega al runner, así que bajo veredicto
 # "block" debe transformarse o detenerse — jamás caer al retorno anotador.
 NON_EPISODE_ACTIONS = frozenset({"shutdown", "sleep", "quarantine", "rollback"})
+
+# B83 — cuántos rechazos entran en el payload de `life.refuge.exhausted`. La búsqueda escanea
+# hasta 400 candidatos; el evento tiene que ser LEGIBLE, no un volcado. El conteo total
+# (`candidates_examined`) SIEMPRE es exacto; el detalle se recorta.
+REFUGE_EXHAUSTED_DETAIL_LIMIT = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,16 +68,34 @@ class LifeKernelConfig:
     restore: bool = True
     checkpoint_interval: int = 1
     memory_filter_mode: str = "strict_same_scenario"
+    # Criterio de retención del lazo de autoevolución ρₜ: qué cantidad decide
+    # conservar o revertir una automodificación. Default "ioc" = conducta
+    # histórica. Ver RETENTION_SIGNALS en runtime/organism/autoevolution.py.
+    retention_signal: str = "ioc"
+    # De dónde saca el trayecto del organismo su señal de éxito. "none" =
+    # conducta histórica (el veredicto no existe aún cuando el trayecto avanza,
+    # así que el organismo toma la penalización de "no certificado" siempre).
+    # "previous_certificate" = el último veredicto emitido, con un paso de
+    # retardo. Ver el bloque 12c en runtime/world/scenario_runner.py.
+    trajectory_reward: str = "none"
     closure_profile: str = "baseline_fixed"
     default_external_input: float = 0.04
     perturbation_spike: float = 0.14
     perturbation_period: int = 7
+    #: Familia de perturbación declarada — ver `runtime.world.disturbance`.
+    #: Vacío o "legacy" ⇒ la periódica de siempre, gobernada por los tres campos
+    #: de arriba, byte-idéntica a antes de que este campo existiera. Cualquier
+    #: otro nombre delega en la familia, que declara su variedad y su semilla.
+    disturbance_family: str = "legacy"
+    disturbance_seed: int = 0
     allow_external_reasoner: bool = False
     exploration_interval: int = 16
     enable_msrc: bool = True
     enable_operational_conjunction: bool = True
     max_compute_tier: ComputeTier = "tier_2_specialized"
     autonomy_policy: str = "bounded"
+    # Inyección pública para campañas controladas. None usa sensado real/opt-in.
+    resource_snapshot_override: Dict[str, Any] | None = None
 
 
 class LifeKernel:
@@ -115,6 +144,28 @@ class LifeKernel:
         self._runner_key: tuple | None = None
         self._msrc_controller = None
         self._scale_state = None
+        self._msrc_budget_available = True
+        self._neural_state: Dict[str, Any] = {}
+        # H-046: el estado longitudinal del lazo ρₜ es del ORGANISMO, no del runner.
+        # Viaja como _neural_state: se exporta tras cada paso, se entrega al runner
+        # nuevo en _runner_for, va al checkpoint y vuelve por los dos restores.
+        self._autoevolution_state: Dict[str, Any] = {}
+        # H-047 · el mundo. RANURA PROPIA, no dentro del estado del organismo:
+        # una campaña causal interviene `do(D)` sobre el mundo y `do(A)` sobre el
+        # organismo por separado, y guardarlos juntos haría imposible mover uno
+        # sin mover el otro.
+        #
+        # H-051 · UN MUNDO POR ESCENARIO, indexado por nombre. Con `scenarios` de
+        # más de uno el kernel rota entre ellos, y una sola ranura le empujaba al
+        # escenario nuevo el mundo del anterior. La comprobación estricta lo cazó
+        # —`world_state_scenario_mismatch`— en vez de cargar campos que
+        # significan otra cosa. Un organismo que alterna entre mundos tiene una
+        # historia POR MUNDO.
+        self._world_state: Dict[str, Any] = {}
+        # H-048 / §XVII: Λ_t, los valores vigentes de los parámetros adaptativos.
+        # Distinto de `self.config`, que es Config₀ (arranque, inmutable). El
+        # default sólo aplica mientras esto esté vacío.
+        self._parameter_state: Dict[str, Any] = {}
         # Sensado de recursos (host + GPU), opt-in por RNFE_HOST_SENSING.
         self._host_sampler = None
         self._vram_sampler = None
@@ -265,7 +316,15 @@ class LifeKernel:
             memory_retrieval_limit=memory_retrieval_limit,
         )
         # A3: el runner inyecta el snapshot de recursos en el contexto de razonamiento.
-        runner.set_resource_signals(self._resource_snapshot)
+        runner.set_neural_config(NeuralRuntimeConfig.from_env())
+        neural_resources = {
+            **self._resource_snapshot,
+            "msrc_budget_available": self._msrc_budget_available,
+            "msrc_scale_id": (
+                self._scale_state.current_scale_id if self._scale_state is not None else None
+            ),
+        }
+        runner.set_resource_signals(neural_resources)
         runner.set_external_reasoner_enabled(external_reasoner_enabled)
         # Experiencia: identidad cross-vida + lecciones del maestro para sesgar el episodio.
         # B41: el namespace es el GENOMA (organism_id), no la corrida (run_id).
@@ -274,6 +333,12 @@ class LifeKernel:
         runner.set_causal_context(causal.to_dict() if causal is not None else None)
         runner.set_experience_lessons(self._experience_lessons)
         episode_result = runner.run_episode(external_input=input_value)
+        self._neural_state = runner.export_neural_state()
+        self._autoevolution_state = runner.export_autoevolution_state()
+        self._parameter_state = runner.export_parameter_state()
+        mundo = runner.export_world_state()
+        if mundo.get("scenario_name"):
+            self._world_state[mundo["scenario_name"]] = mundo
         self._consecutive_quarantine = 0  # actuó sano ⇒ ya no está atascado
         # Reflexión continua (E2): el maestro reflexiona si el episodio hirió, o cada
         # cierto tiempo — la reflexión es parte de su vida en todo momento. Off hot-path
@@ -361,6 +426,10 @@ class LifeKernel:
         vivo permanece byte-idéntico. On, compone CPU/RAM del host con la VRAM
         real (``NvidiaVRAMSampler``) cuando hay GPU.
         """
+        if self.config.resource_snapshot_override is not None:
+            self._resource_snapshot = dict(self.config.resource_snapshot_override)
+            return dict(self._resource_snapshot)
+
         from runtime.control.msrc.host_sampler import (
             HostResourceSampler,
             build_resource_snapshot,
@@ -640,10 +709,18 @@ class LifeKernel:
                     organism_state=self.organism_state,
                     lineage=self.lineage,
                 )
-        elif decision.action == "quarantine" and self._experience is not None:
+        elif decision.action == "quarantine":
             # E5 — refugio sano: una cuarentena atascada es un callejón sin salida (no
             # ejecuta episodios ⇒ no se recupera). Tras varias seguidas, el organismo rueda
             # a su último yo sano para sobrevivir y seguir aprendiendo de sus golpes.
+            #
+            # H-050: esta rama pedía además `self._experience is not None`, que depende
+            # de RNFE_EXPERIENCE y está apagada por default. El contador nunca avanzaba,
+            # el refugio nunca disparaba, y la cuarentena resultaba ABSORBENTE: medido,
+            # 31 episodios y luego 29 pasos seguidos sin ejecutar, con el margen clavado
+            # en 0.1435. Sobrevivir a una cuarentena atascada y guardar memoria de los
+            # golpes son dos capacidades distintas; compartir rama las ataba sin motivo.
+            # El umbral que decide ENTRAR en cuarentena no se toca: está congelado.
             self._consecutive_quarantine += 1
             if self._consecutive_quarantine >= 3 and self._restore_latest_healthy_checkpoint():
                 vitals = self.vitals_service.bootstrap(
@@ -683,6 +760,16 @@ class LifeKernel:
         self._record_nonacting_wound(decision=decision, vitals=vitals)
         if decision.action in {"quarantine", "rollback"}:
             self._maybe_reflect()
+        # El siguiente step decide con `last_vitals` (ver step(): `pre_vitals =
+        # self.last_vitals`). Esta rama CURA al organismo —restaura el último
+        # checkpoint sano y recomputa vitales frescos— y usaba esos vitales para
+        # el resultado, el checkpoint y el evento, pero NO los guardaba. Así que
+        # el paso siguiente volvía a leer los vitales enfermos de antes del
+        # rollback y volvía a decidir rollback: un pestillo del que no se sale.
+        # Medido: muerte en el paso 32 y 117 de 150 pasos congelados repitiendo
+        # el mismo checkpoint. Si la restauración NO ocurre, `vitals` sigue
+        # siendo `pre_vitals` y esta línea es un no-op, que es lo correcto.
+        self.last_vitals = vitals
         return LifeStepResult(
             run_id=self.run_id,
             step_index=self.total_steps,
@@ -743,6 +830,105 @@ class LifeKernel:
         scale_state = payload.get("scale_state")
         if isinstance(scale_state, dict) and scale_state.get("current_scale_id"):
             self._scale_state = self._scale_state_from_payload(scale_state)
+        neural_state = payload.get("neural_state")
+        self._neural_state = dict(neural_state) if isinstance(neural_state, dict) else {}
+        ae_state = payload.get("autoevolution_state")
+        self._autoevolution_state = dict(ae_state) if isinstance(ae_state, dict) else {}
+        par_state = payload.get("parameter_state")
+        self._parameter_state = dict(par_state) if isinstance(par_state, dict) else {}
+        # H-047. Un checkpoint anterior a esta reparación no lleva la clave, y
+        # entonces el mundo arranca virgen: es la conducta de antes, no un fallo.
+        self._world_state = self._world_map_from_payload(payload.get("world_state"))
+
+    @staticmethod
+    def _world_map_from_payload(world_state: Any) -> Dict[str, Any]:
+        """Mapa escenario→mundo, migrando el formato plano anterior a H-051.
+
+        Un checkpoint escrito entre H-047 y H-051 lleva UN mundo suelto con su
+        `scenario_name` dentro. Se envuelve en su propia entrada en vez de
+        descartarse: perderlo devolvería al organismo a un mundo virgen, que es
+        justo lo que H-047 reparó.
+        """
+        if not isinstance(world_state, dict) or not world_state:
+            return {}
+        if world_state.get("schema_version"):          # formato plano, pre-H-051
+            nombre = world_state.get("scenario_name")
+            return {nombre: dict(world_state)} if nombre else {}
+        return {k: dict(v) for k, v in world_state.items() if isinstance(v, dict)}
+
+    def _reconcile_restored_proposals(
+        self, restored_ae: Dict[str, Any], *, artifact: Any = None
+    ) -> Dict[str, Any]:
+        """El refugio rebobina el organismo; el ledger no se rebobina.
+
+        Un refugio restaura un estado ANTERIOR del lazo ρₜ, y ese estado puede
+        creer que una propuesta sigue en monitoreo cuando el ledger ya registró
+        su desenlace. Sin reconciliar, la ventana se reabre y vuelve a cerrarse:
+        medido, `mod-24dbd0b9` recibió DOS `autoevolution.committed`, que rompe
+        `∀ p ∈ APPLIED, ∃! outcome`.
+
+        El ledger manda —misma doctrina que R-012: la caché es préstamo, el
+        ledger es la fuente—. Una propuesta que allí ya cerró se adopta cerrada,
+        **sin emitir un segundo evento terminal**, y su ventana de monitoreo se
+        descarta: pertenecía a una trayectoria que el refugio abandonó.
+
+        El descarte no es silencioso. Se emite UN evento que lo nombra, que no es
+        terminal y por tanto no compite con el desenlace que ya existe.
+        """
+        from runtime.organism.autoevolution import TERMINAL_STATUSES
+
+        propuestas = restored_ae.get("proposals") or []
+        if not propuestas:
+            return restored_ae
+
+        try:
+            cerradas: Dict[str, str] = {}
+            for evento in self.storage.list_events(limit=1000, run_id=self.run_id):
+                sufijo = evento.event_type.rsplit(".", 1)[-1]
+                if sufijo in TERMINAL_STATUSES:
+                    pid = (evento.payload or {}).get("proposal_id")
+                    if pid:
+                        cerradas.setdefault(pid, sufijo)
+        except Exception:
+            # Ledger ilegible: se conserva la conducta anterior en vez de tumbar
+            # el refugio. Es el mismo silencio deliberado que `_previous_certification`.
+            return restored_ae
+
+        reconciliadas = []
+        for registro in propuestas:
+            pid = registro.get("proposal_id")
+            if registro.get("status") in TERMINAL_STATUSES or pid not in cerradas:
+                continue
+            desenlace = cerradas[pid]
+            registro["status"] = desenlace
+            registro["outcome_reason"] = "reconciled_with_ledger_after_refuge"
+            registro.setdefault("transitions", []).append(
+                {"status": desenlace, "episode": self.total_steps,
+                 "reason": "reconciled_with_ledger_after_refuge"}
+            )
+            reconciliadas.append({"proposal_id": pid, "outcome": desenlace})
+
+        if restored_ae.get("active_proposal_id") in cerradas:
+            restored_ae["active_proposal_id"] = None
+        monitor = restored_ae.get("post_monitor") or {}
+        if monitor.get("proposal_id") in cerradas:
+            restored_ae["post_monitor"] = None
+
+        if reconciliadas:
+            try:
+                self.storage.append_event(
+                    event_type="autoevolution.window_discarded",
+                    run_id=self.run_id,
+                    source="life_kernel",
+                    payload={
+                        "reason": "refuge_restore_resurrected_closed_proposals",
+                        "reconciled": reconciliadas,
+                        "checkpoint_artifact_id": getattr(artifact, "artifact_id", None),
+                    },
+                )
+            except Exception:
+                pass  # la telemetría nunca tumba el refugio
+        return restored_ae
 
     def _genesis(self) -> None:
         # organism_id (genoma) por precedencia: config gana sobre entorno →
@@ -800,11 +986,41 @@ class LifeKernel:
             closure_profile=closure_profile,
             organism_state=self.organism_state,
             lineage=self.lineage,
+            retention_signal=getattr(self.config, "retention_signal", "ioc"),
+            trajectory_reward=getattr(self.config, "trajectory_reward", "none"),
+            # Λ_t: el runner nuevo lo RECIBE. Vacío ⇒ bootstrap con los defaults.
+            parameter_state=dict(self._parameter_state) if self._parameter_state else None,
         )
-        # El tier ejecutable (B3) puede fijar el límite de recuperación de memoria;
-        # None conserva el default del runner (byte-idéntico).
+        # La identidad soberana debe fijarse antes de restaurar la cadena dinámica;
+        # un checkpoint de otro organismo/linaje se rechaza, no se reetiqueta.
+        self._runner.set_organism_id(self.organism_id)
+        if self._neural_state:
+            self._runner.restore_neural_state(self._neural_state)
+        # El tier ejecutable (B3) pide un punto de operación para la memoria.
+        # §XXXVIII: deja de ser un writer lateral y pasa por la única autoridad
+        # de materialización, con su procedencia. La conducta se preserva —el
+        # tier sigue obteniendo el valor que pide— pero ahora queda auditable
+        # quién lo pidió, y la validación es la misma para todas las fuentes.
+        # None conserva Λ_t (byte-idéntico con el flag de routing apagado).
         if memory_retrieval_limit is not None:
-            self._runner.memory_retrieval_limit = int(memory_retrieval_limit)
+            self._runner.apply_parameter_intent(
+                {"memory_retrieval_limit": memory_retrieval_limit},
+                source="execution_tier",
+                reason="requested operating point",
+            )
+        # H-046: rehidratar el lazo ρₜ del runner nuevo con el estado del organismo.
+        # Va tras el directive del tier para que lo que el lazo ya decidió tenga la
+        # misma precedencia que en un runner no reconstruido (el directive se fija
+        # una vez al construir; el lazo escribe después). Vacío ⇒ no-op.
+        if self._autoevolution_state:
+            self._runner.restore_autoevolution_state(self._autoevolution_state)
+        # H-047: el mundo que el organismo dejó, no uno virgen. Sin esto el
+        # escenario nacía en su estado inicial cada bloque y descartaba lo que el
+        # organismo había hecho — medido: cerraba a 0.98 con alarma y renacía a
+        # 0.82 sin ella. Vacío ⇒ no-op, que es el arranque limpio legítimo.
+        mundo_guardado = self._world_state.get(self._runner.scenario.config.name)
+        if mundo_guardado:
+            self._runner.restore_world_state(mundo_guardado)
         self._runner_key = key
         return self._runner
 
@@ -848,6 +1064,10 @@ class LifeKernel:
                 "closure_profile": self.config.closure_profile,
             },
             scale_state=self._scale_state.to_dict() if self._scale_state is not None else {},
+            neural_state=dict(self._neural_state),
+            autoevolution_state=dict(self._autoevolution_state),
+            parameter_state=dict(self._parameter_state),
+            world_state=dict(self._world_state),
             metadata={"reason": reason},
         )
 
@@ -855,10 +1075,25 @@ class LifeKernel:
         # B41: el refugio sano (rollback/E5) se busca por GENOMA — el último yo sano del
         # organismo, aunque viva bajo otra corrida (run_id efímero). Fallback a run_id
         # legacy cubierto por load_latest_payload (§4.1).
+        #
+        # B83 — EL ORGANISMO NO PUEDE QUEDARSE SIN REFUGIO EN SILENCIO. Con el refugio
+        # estrechado (un estado con closure/traza rotos y continuidad mediocre NO es refugio),
+        # que TODOS los candidatos se rechacen es un desenlace posible — y hasta ahora esta
+        # función devolvía `False` y el organismo quedaba atascado en cuarentena SIN DEJAR
+        # RASTRO de por qué. Ese es, literalmente, el callejón sin salida (el de aeon-01) que
+        # el camino de refugio E5 existe para romper: `life.refuge` se emitía SOLO en el ÉXITO.
+        # Ahora cada rechazo queda en el ledger, y la búsqueda agotada se dice FUERTE.
+        rejections: List[Dict[str, Any]] = []
+
+        def _on_reject(rejection: Dict[str, Any]) -> None:
+            rejections.append(rejection)
+            self._emit_refuge_rejected(rejection)
+
         loaded = self.checkpoints.load_latest_payload(
-            organism_id=self.organism_id, healthy_only=True
+            organism_id=self.organism_id, healthy_only=True, on_reject=_on_reject
         )
         if loaded is None:
+            self._emit_refuge_exhausted(rejections)
             return False
         payload, artifact = loaded
         self.organism_state = organism_from_payload(payload.get("organism_state"))
@@ -867,21 +1102,196 @@ class LifeKernel:
         self.total_steps = int(payload.get("total_steps", self.total_steps))
         self.scenario_index = int(payload.get("scenario_index", self.scenario_index))
         self.scenario_episode_index = int(payload.get("scenario_episode_index", 0))
+        neural_state = payload.get("neural_state")
+        self._neural_state = dict(neural_state) if isinstance(neural_state, dict) else {}
+        # H-046: el refugio descarta la línea temporal viva. Si en ella había una
+        # propuesta APLICADA que el checkpoint restaurado no conoce, no puede
+        # desaparecer sin desenlace: se ABORTA con registro (∀ applied ∃! outcome).
+        # Si el checkpoint restaurado ya la tenía viva, sigue viva — no se toca.
+        ae_state = payload.get("autoevolution_state")
+        restored_ae = dict(ae_state) if isinstance(ae_state, dict) else {}
+        live_pid = (self._autoevolution_state or {}).get("active_proposal_id")
+        if live_pid and restored_ae.get("active_proposal_id") != live_pid:
+            try:
+                self.storage.append_event(
+                    event_type="autoevolution.aborted",
+                    run_id=self.run_id,
+                    source="life_kernel",
+                    payload={
+                        "proposal_id": live_pid,
+                        "reason": "refuge_restore",
+                        "checkpoint_artifact_id": artifact.artifact_id,
+                    },
+                )
+            except Exception:
+                pass  # la telemetría nunca tumba el refugio (misma disciplina que life.refuge.*)
+        restored_ae = self._reconcile_restored_proposals(restored_ae, artifact=artifact)
+        self._autoevolution_state = restored_ae
+        par_state = payload.get("parameter_state")
+        self._parameter_state = dict(par_state) if isinstance(par_state, dict) else {}
+        # El refugio devuelve al organismo a su último yo sano; el mundo del
+        # checkpoint viaja con él. Rodar el organismo y dejar el mundo donde
+        # estaba emparejaría un organismo de antes con un mundo de después.
+        self._world_state = self._world_map_from_payload(payload.get("world_state"))
         self._runner = None
         self._runner_key = None
+        # B18: el payload del rollback se emite con la FORMA de `contracts/rollback.schema.json`
+        # (rollback_id/target/reason/timestamp/artifacts). Antes solo llevaba
+        # `checkpoint_artifact_id`, que se conserva como clave aditiva por back-compat
+        # (el schema declara additionalProperties: true).
         self.storage.append_event(
             event_type="life.rollback.restored_checkpoint",
             run_id=self.run_id,
             source="life_kernel",
-            payload={"checkpoint_artifact_id": artifact.artifact_id},
+            payload={
+                "rollback_id": f"rollback-{uuid4()}",
+                "target": str(artifact.artifact_id),
+                "reason": "restore_latest_healthy_checkpoint",
+                "timestamp": utc_now_iso(),
+                "artifacts": [str(artifact.artifact_id)],
+                "checkpoint_artifact_id": artifact.artifact_id,
+            },
         )
         return True
+
+    def _emit_refuge_rejected(self, rejection: Dict[str, Any]) -> None:
+        """B83 — POR CANDIDATO: este checkpoint no sirve de refugio, y acá está el porqué.
+
+        Lleva el `restorability_report()` (ejes chequeados, no aplicables, fallados). Desde
+        P9.5 ese informe existía y se logueaba con `logger.warning`; ahora es EVENTO, que es
+        lo único que sobrevive a la corrida y puede auditarse.
+        """
+        self._emit_refuge_event(
+            "life.refuge.rejected",
+            {
+                "step_index": self.total_steps,
+                "organism_id": self.organism_id,
+                "artifact_id": rejection.get("artifact_id"),
+                "reason": rejection.get("reason"),
+                "detail": rejection.get("detail") or "",
+                "restorability_report": rejection.get("report"),
+            },
+        )
+
+    def _count_own_checkpoints(self) -> int | None:
+        """Cuántos checkpoints existen para ESTE organismo (sanos o no). `None` si no se pudo.
+
+        Solo se llama en el camino de emergencia (refugio agotado), así que el costo de la
+        consulta extra es irrelevante frente a lo que está en juego.
+        """
+        try:
+            artifacts = self.storage.list_artifacts(
+                run_id=None, kind=LIFE_CHECKPOINT_KIND, limit=400
+            )
+            return sum(
+                1
+                for a in artifacts
+                if str((a.metadata or {}).get("organism_id") or a.run_id or "")
+                == self.organism_id
+            )
+        except Exception:  # noqa: BLE001 - diagnóstico best-effort: jamás matar el lazo vital
+            return None
+
+    def _emit_refuge_exhausted(self, rejections: List[Dict[str, Any]]) -> None:
+        """B83 — BÚSQUEDA AGOTADA: "me quedé sin a dónde volver".
+
+        La señal más importante que el organismo puede emitir sobre su propia supervivencia:
+        no queda NINGÚN estado al que replegarse. Sin esto, el refugio estrechado (decisión
+        del humano: un estado con closure/traza rotos NO es refugio) puede dejar al organismo
+        mudo en cuarentena.
+
+        DOS DIAGNÓSTICOS MUY DISTINTOS, que `candidates_examined` solo NO puede separar: un
+        organismo que **nunca tuvo un refugio** (jamás produjo un checkpoint sano) y uno cuyos
+        refugios **se pudrieron** (los tuvo y hoy no pasan la compuerta) emiten ambos
+        `candidates_examined: 0`, porque los checkpoints guardados como no-sanos ni siquiera
+        entran a la lista de candidatos. Por eso se emite también el total propio:
+
+          total=0                      -> nunca hubo checkpoint
+          total>0, examined=0          -> los tuvo, pero TODOS nacieron enfermos: nunca hubo refugio
+          total>0, examined>0          -> los tuvo y eran candidatos, pero hoy se pudrieron
+
+        En la señal más crítica del organismo, esa diferencia es el diagnóstico.
+        """
+        total = self._count_own_checkpoints()
+        self._emit_refuge_event(
+            "life.refuge.exhausted",
+            {
+                "step_index": self.total_steps,
+                "organism_id": self.organism_id,
+                "lineage_id": self.lineage_id,
+                "reason": "no_restorable_checkpoint",
+                # Candidatos que llegaron a la compuerta (pasaron el prefiltro del índice).
+                "candidates_examined": len(rejections),
+                # Total de checkpoints propios, sanos o no. Sin esto, "nunca tuve refugio" y
+                # "todos mis refugios se pudrieron" son indistinguibles (ambos examinan 0).
+                "checkpoints_total": total,
+                "born_unhealthy": (
+                    max(0, total - len(rejections)) if total is not None else None
+                ),
+                "rejections": [
+                    {
+                        "artifact_id": r.get("artifact_id"),
+                        "reason": r.get("reason"),
+                        "failed_axes": list((r.get("report") or {}).get("failed_axes") or []),
+                        "unverified_axes": list(
+                            (r.get("report") or {}).get("unverified_axes") or []
+                        ),
+                    }
+                    for r in rejections[:REFUGE_EXHAUSTED_DETAIL_LIMIT]
+                ],
+                "rejections_truncated": max(
+                    0, len(rejections) - REFUGE_EXHAUSTED_DETAIL_LIMIT
+                ),
+            },
+        )
+
+    def _emit_refuge_event(self, event_type: str, payload: Dict[str, Any]) -> None:
+        """Emisión de telemetría del refugio — que JAMÁS puede matar el lazo vital.
+
+        P7 / CANON §13: `life.refuge.*` NO está entre los 5 contratos activos, así que
+        `contract_validation` no lo valida (y NO debe agregarse a `EVENT_CONTRACTS`: hay un
+        tripwire para eso). Aun así el `append_event` se blinda: estos eventos se emiten en
+        el momento MÁS frágil de la vida del organismo —cuando se está quedando sin refugio—
+        y una excepción del storage acá lo mataría justo ahí. Decir que no tenés a dónde
+        volver no puede ser la causa de tu muerte.
+        """
+        try:
+            self.storage.append_event(
+                event_type=event_type,
+                run_id=self.run_id,
+                source="life_kernel",
+                payload=payload,
+            )
+        except Exception as exc:  # noqa: BLE001 - la telemetría no puede costar el lazo vital
+            logger.warning(
+                "[life.refuge] no se pudo emitir %s (%s: %s). El lazo vital CONTINÚA.",
+                event_type,
+                type(exc).__name__,
+                exc,
+            )
 
     def _current_scenario(self) -> str:
         scenarios = list(self.config.scenarios or ("thermal_homeostasis",))
         return scenarios[self.scenario_index % len(scenarios)]
 
     def _perturbation(self, step: int) -> float:
+        """Entrada externa del paso.
+
+        Con familia declarada (distinta de "legacy") delega en
+        `runtime.world.disturbance`, que fija la semilla y declara su variedad.
+        Sin declarar, corre la periódica de siempre gobernada por los tres
+        campos de config, byte a byte como antes.
+
+        El import es perezoso a propósito: el kernel no debe arrastrar el
+        catálogo de familias cuando nadie declaró ninguna.
+        """
+        family = (getattr(self.config, "disturbance_family", "") or "").strip()
+        if family and family.lower() != "legacy":
+            from runtime.world.disturbance import resolve
+
+            return resolve(family).at(
+                step, seed=int(getattr(self.config, "disturbance_seed", 0))
+            )
         period = max(1, int(self.config.perturbation_period))
         if step % period == period - 1:
             return float(self.config.perturbation_spike)
@@ -899,6 +1309,7 @@ class LifeKernel:
             from runtime.control.msrc import MSRCController, ProbeResult, ScalePolicyState
             from runtime.control.msrc.vram_sampler import NullVRAMSampler
         except Exception:
+            self._msrc_budget_available = False
             return {"status": "unavailable"}
         if self._scale_state is None:
             self._scale_state = ScalePolicyState(current_scale_id="1x1")
@@ -916,6 +1327,12 @@ class LifeKernel:
         episode = episode_result.get("episode") or {}
         episode_id = str(episode.get("episode_id") or f"life-step-{self.total_steps}")
         observation = ((episode.get("context") or {}).get("observation") or {})
+        neural_trace = episode_result.get("neural_symbiosis_trace") or {}
+        trace_group_id = str(
+            (episode.get("causal_context") or {}).get("trace_group_id")
+            or neural_trace.get("trace_group_id")
+            or f"trace-{episode_id}"
+        )
 
         def probe_executor(target_scale_id: str):
             gain = max(0.0, vitals.cognitive_quality - 0.50)
@@ -942,21 +1359,43 @@ class LifeKernel:
                     "memory_purity": vitals.memory_purity,
                 },
                 probe_executor=probe_executor,
+                trace_group_id=trace_group_id,
             )
         except Exception as exc:
+            self._msrc_budget_available = False
             self.storage.append_event(
                 event_type="life.msrc.error",
                 run_id=self.run_id,
                 source="life_kernel",
-                payload={"episode_id": episode_id, "error": f"{type(exc).__name__}: {exc}"},
+                payload={
+                    "episode_id": episode_id,
+                    "trace_group_id": trace_group_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
             )
             return {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
+        self._msrc_budget_available = True
         self._scale_state = out["state"]
+        transition = out["transition_record"]
         return {
+            "status": "ok",
+            "run_id": self.run_id,
+            "episode_id": episode_id,
+            "trace_group_id": trace_group_id,
             "selected_scale_id": out["selected_scale_id"],
             "action": out["action"].to_dict(),
             "estimate": out["estimate"].to_dict(),
             "state": self._scale_state.to_dict(),
+            "transition": transition.to_dict(),
+            "atomic": (
+                out["selected_scale_id"] == transition.source_scale_id
+                if (
+                    transition.transition_aborted
+                    or out["action"].action_type
+                    in {"keep_scale", "lock_scale_for_n_steps", "discard_probe_result", "fork_probe"}
+                )
+                else out["selected_scale_id"] == transition.target_scale_id
+            ),
         }
 
     @staticmethod

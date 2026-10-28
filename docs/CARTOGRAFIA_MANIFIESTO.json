@@ -1,0 +1,108 @@
+{
+  "schema_version": "genesis.docs.cartography-manifest/v1",
+  "document": "docs/CARTOGRAFIA_GENESIS_01.md",
+  "written_at": "2026-09-21",
+  "head": "8f506a7",
+  "trees": {
+    "v16": "/home/wis/Desarrollo/RNE_v16",
+    "v15": "/home/wis/dev/rnfe.v15"
+  },
+  "sections": {
+    "Cartografía de Genesis": {
+      "files": {
+        "scripts/cartografia_check.py": "83b2dbe8d8836c3b534df22a5f7d0339221d63b1c3068897a22d8f63a1055e00"
+      }
+    },
+    "I · Los tres árboles, y por qué esta sección va primera": {
+      "files": {
+        "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41"
+      }
+    },
+    "II · El lazo de vida y quién es dueño de su estado": {
+      "files": {
+        "runtime/life/kernel.py": "4bf2790bbd033572599835a4d9c865790d68597de5b7499641a4acd22735df77",
+        "runtime/world/scenario.py": "52235f9243781a38c0d27e6eb25401736faebcc7a52e5799f95179d1ffe25dc1",
+        "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907",
+        "tests/life/test_autoevolution_continuity.py": "fcc39b1399f19a5349149ea8487bbf3454d19464f41af64bbe54c57e7946148f",
+        "tests/life/test_certificate_continuity.py": "9bc4016cfda803f9a97ed02bfd4ce95d81d6ed6a94cb431d5c15c1cc55b526fb",
+        "tests/organism/test_autoevolution_state.py": "e8f5b6227a75dbb2759c1b1cc0cdcc9548721d7113e98539fc86638c72acf98c",
+        "tests/world/test_world_continuity.py": "f5d4ffa8ed44140e87b825c6aa3a06b6cd74b816cb35aac4755df2ead816e92b",
+        "tests/world/test_world_multiscenario.py": "01b62e092011943dbb6ce4dbbabbd968fc60252649ae5aa79379427d57c2e8c3"
+      }
+    },
+    "III · La autoridad de parámetros y el ledger de Λ": {
+      "files": {
+        "runtime/life/kernel.py": "4bf2790bbd033572599835a4d9c865790d68597de5b7499641a4acd22735df77",
+        "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",
+        "runtime/organism/ecology.py": "2cb38c58fd6d34885d7759410a9a8bbe864a9c0946af6dd4ba3cb5ebc5320bea",
+        "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41",
+        "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907",
+        "tests/life/test_parameter_authority.py": "b07bce5db9218e6518e5cb2e6fa9b772ac0dde771910bb993e7f145fc74bc8d9",
+        "tests/life/test_parameter_provenance.py": "8a9757399a67dd4d77bb9fc8fd558be1d8fcf1f3184d507e03a563d9a3f8286a"
+      }
+    },
+    "IV · El régimen de referencia y sus dos umbrales que no son el mismo": {
+      "files": {
+        "runtime/life/kernel.py": "4bf2790bbd033572599835a4d9c865790d68597de5b7499641a4acd22735df77",
+        "runtime/life/reference_manifest.py": "4bb422417395906c3739a320adf8f24344a8b0260bb04413cb75fa32b413a5b6",
+        "runtime/life/vitals.py": "9c1a5e3c062d959114d95450b0296736bba99ebbf60e6235092e4cc8cc48de39",
+        "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",
+        "runtime/organism/viability.py": "66aeb2d063ce396f477b068bf2e6cfb002b5b5fed528a4c7fd264d8e69a0c440",
+        "tests/life/test_quarantine_not_absorbing.py": "a39eda6952ee977e4c1d6c1aec9749ff949c3e94346d172573682ee0e9d890fb",
+        "tests/life/test_reference_manifest.py": "b6cfdf73b28079c424ed8cff65dfbc1b2ecdc1a1712a41d85877daf97a1de4f9"
+      }
+    },
+    "V · Lo neural: qué hay aquí, y qué de ello alcanza al organismo": {
+      "files": {
+        "runtime/evolution/EvolutionaryRehabilitationCenter.py": "9fa3634a2b478638aa69602a9c544a4c72c17a89d81bd8c25b2b9b0c27471513",
+        "runtime/evolution/predictive_coder.py": "2c512aa927d8965654935535c491f3a695ad5fabe5d6c503343ac23f7d07031a",
+        "runtime/legacy/train.py": "29902fcc358bbd456d020f898757d2b0ce1abe426e5df7f330ad5b4c65502ee7",
+        "runtime/neural/organs/n3_temporal.py": "2e03a1c5b52c7ee0d7191c871bf9a47a1542c996c0685a7ef6e9d44a0cb660f6",
+        "runtime/neural/organs/n4_causal.py": "038b8e3405b6f55daa493803d91202cbf9ac2fc53e7774b8567883eb30da4e2e",
+        "runtime/neural/training/n1_dataset.py": "16eb53bd14dae87ef43fe822225485742cdf066291253aecb4118beb686bd1ce",
+        "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41",
+        "v16:runtime/neural/training/n4_campaign.py": "d4d028b5e79de998c09e42b6dec0d2268118cbb74d68fbc8dde47b8297945fa4",
+        "v16:runtime/neural/training/n4_ranking.py": "369073567c24a5af6e6122cf296250636d831def41ccc5bdb82d67503834f8ec",
+        "v16:scripts/evaluate_n4_ranking_ablation.py": "81f0548fdfd16c63c6070daf2f404b11d5bb3d1862b2a16d4b9da610ffa603bf",
+        "v16:scripts/train_n4_ranking.py": "03dcc3559669f217ee5ea4354856150c0c43ffb1ab2b370bb0b889d8254326b6"
+      }
+    },
+    "VI · El harness de gemelos causales": {
+      "files": {
+        "runtime/life/twins.py": "829ace86154f9643a9a7ca1fd5789df6f3aebb962ce01870d49d92e20d2350f2",
+        "tests/life/test_twin_harness.py": "dd09a991c240dc0900d618f88f7d316af6c2fa483096ea42d38d425c6f974e82"
+      }
+    },
+    "VII · `lab/genesis/` · la fábrica de capacidades · Atlas 05": {
+      "files": {
+        "lab/genesis/acquisition/complete_frontier.py": "a489e6091b6171446b0bd6481adea0351bf22a44c72f48089641abb541758b2f",
+        "lab/genesis/acquisition/confirmation.py": "d527ddd29d4fff72a08ab373713ac98b3a1d5f46f1550e4f993b83ef3b9d8b17",
+        "lab/genesis/acquisition/contracts.py": "46dbb5a03355978b053bf6c35e264455c2d6b02ab5c4b9ab5fd5e014ed8e0078",
+        "lab/genesis/acquisition/dsl.py": "b4df21d01cad02d78a5e398a44a4282338a284c5550a28dd1fb6c6b8b041883c",
+        "lab/genesis/acquisition/synthesis.py": "058ca9b146e8917ca70f3c2c6388bb2686aaf1d8ccd9335af9463531fd721e5c",
+        "lab/genesis/evidence/ledger.py": "54575f7dbbfc7d3e58b4ada5482b917945bac80c63a3d2d1a2943adcd1ad02b5"
+      }
+    },
+    "VIII · RNE · qué persiste, qué puede cambiar, y qué tendría que tocar Genesis · Atlas 06": {
+      "files": {
+        "canon/provisional/ROADMAP_RNFE_v2.md": "03201fff61987672e5236eb8734a8553bb63756221f23d92a4d06df510fe75a7",
+        "lab/genesis/retention/__init__.py": "a3941e5ee5d2a2d0447222d11743d6f807e5a92775de9eb2ce2fa862cc9e9686",
+        "lab/genesis/retention/family.py": "8e19570291506d8d0b8dc53a99667aa67787d54454e1870446abe7357e68ff6c",
+        "runtime/organism/adaptive_state.py": "386ab860cf797f3b8ac228d0e934aa9e2b2d593b056d697989280c63229c299b",
+        "runtime/organism/autoevolution.py": "41fcd5c9365bc60f305eb28df012c2aaf48a45beb2bd146990b9a384e23c360f",
+        "runtime/organism/self_modification.py": "3d5ef7efad52785da056f6d99fc32c2334c45092f3f012a95cd6dad881c05f7b",
+        "runtime/world/parameters.py": "992ac91971c965c74964746edf2143a8c9c5f03a73586fb95cdbd96f3967fc41",
+        "runtime/world/scenario_runner.py": "ed044dfc55688a681630dc6c3c8752f82a1492bd7dfe11ca81b2358ea86ec907"
+      }
+    },
+    "IX · Atlas 07 · El canon como autoridad · lado Genesis": {
+      "files": {
+        "canon/historical/CANON_RNFE_v3_1.md": "1597340ca2bc09cfd0a3b880768df089795db336f236088024391a72a89243d2",
+        "canon/normative/RUNTIME_SSOT_v1.md": "d062a18e922b563923ff3f50669d093a428dd549ecca6f7239ea063bf26331d2",
+        "runtime/storage/backends/sqlite_store.py": "4127052094e460b8e3b221e9a034585771c7e07d8cde56cc3e307aa028a2fbbf",
+        "runtime/storage/facade.py": "5c9c7b5d1c1396bc897d4ce42415c9751fa6a82876c3191f87333f56a8090355",
+        "runtime/storage/records.py": "319f41d8ec56ad1bf7ef91e3ef957452b7857b26c819948ad1068238c90d83f3"
+      }
+    }
+  }
+}

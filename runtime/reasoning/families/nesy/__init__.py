@@ -14,7 +14,11 @@ FAMILY_ID = "NESY"
 
 
 def execute(state):
-    if not ci.family_deep_enabled(FAMILY_ID):
+    # El coordinador simbiótico usa NESY como verificador shadow de N2 aunque el
+    # overlay profundo no esté en la secuencia autoritativa. Esto no agenda la
+    # familia ni le concede autoridad; solo consume su computación determinista.
+    symbiotic_verify = state.get("_symbiotic_n2_verify") is True
+    if not ci.family_deep_enabled(FAMILY_ID) and not symbiotic_verify:
         return {
             "family": FAMILY_ID,
             "status": "idle",

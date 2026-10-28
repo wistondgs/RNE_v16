@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 from uuid import uuid4
 
 from runtime.storage import StorageFacade
@@ -14,8 +15,23 @@ from .regime_renormalization import RegimeRenormalizationEngine, Renormalization
 from .risk_process import ConstitutionalRiskProcess, RiskState
 from .t5_mode import get_t5_mode
 from .trajectory import OrganismTrajectory
+from .state import OrganismState
 from .trajectory_state_machine import TrajectoryStateMachine
 from .viability_kernel import TrajectoryViabilityKernel
+
+
+logger = logging.getLogger(__name__)
+
+
+# B26.2 — estado del eje de renormalización en este episodio.
+#   not_applicable: no hubo cruce de régimen (mismo escenario, o primer episodio).
+#                   No hay renormalización que medir: es un eje SIN SUJETO.
+#   measured:       hubo cruce y ambos escenarios tienen régimen latente conocido.
+#                   El residual es una MEDICIÓN.
+#   unmeasured:     hubo cruce y al menos uno de los dos escenarios NO tiene régimen.
+#                   El organismo NO SABE renormalizar este cruce. El residual es
+#                   AUSENCIA DE EVIDENCIA, no evidencia de perfección.
+RenormalizationStatus = Literal["not_applicable", "measured", "unmeasured"]
 
 
 @dataclass(frozen=True)
@@ -34,9 +50,24 @@ class CourtEpisodeResult:
     modification_risk: float
     inheritance_risk: float
     failure_mode_count: int
-    renormalization_residual: float
-    renormalization_uncertainty: float
-    expected_recovery_cost: float
+
+    # B26.2 — antes eran `float` y valían 0.0 cuando el cruce no era renormalizable.
+    # 0.0 es el valor MÁS FAVORABLE: cero aporte al riesgo (risk_process) y
+    # `renorm_residual_spike` inalcanzable (failure_atlas). Ahora `None` = NO MEDIDO.
+    # Quien los consuma DEBE mirar `renormalization_status` antes de leerlos como salud.
+    renormalization_residual: float | None
+    renormalization_uncertainty: float | None
+    expected_recovery_cost: float | None
+    renormalization_status: RenormalizationStatus = "not_applicable"
+
+    # Cruce de régimen que ocurrió pero NO se pudo renormalizar (escenarios sin
+    # régimen latente). Vacío cuando no hay omisión. Declarado por nombre.
+    unrenormalizable_edge: tuple[str, ...] = ()
+    unmeasured_axes: tuple[str, ...] = ()
+
+    @property
+    def renormalization_measured(self) -> bool:
+        return self.renormalization_status == "measured"
 
 
 class ConstitutionalCourtRuntime:
@@ -67,6 +98,7 @@ class ConstitutionalCourtRuntime:
         self,
         *,
         cross_regime: bool,
+        renorm_unmeasured: bool,
         modification_pending: bool,
         flow_valid: bool,
         rollback: bool,
@@ -76,6 +108,19 @@ class ConstitutionalCourtRuntime:
         modification_risk: float,
         inheritance_risk: float,
     ) -> tuple[str, str]:
+        """Deriva el scope constitucional.
+
+        B26.2 — ``renorm_unmeasured``: hubo cruce de régimen y NO se pudo
+        renormalizar. La corte **no puede certificar transferencia ni herencia**
+        sobre un cruce cuyo residual nunca midió: certificar exige evidencia, y acá
+        no hay. Cae a ``quarantine_only`` / ``analogical_hint``, que es exactamente
+        el estado que el canon prescribe para transferencia no certificada
+        (SCENARIO_CONTRACTS_v1 §7.3) y para el cruce peligroso (§7.5).
+
+        Ojo con la simetría: esto NO es ``blocked``. "No sé renormalizar esto" no es
+        "la renormalización falló catastróficamente". La corte se ABSTIENE de
+        certificar; no declara una falla crítica.
+        """
         aggregate = max(organism_risk, edge_risk, modification_risk, inheritance_risk)
         if rollback or viability_score < 0.20 or aggregate >= 0.85:
             return "blocked", ""
@@ -88,6 +133,12 @@ class ConstitutionalCourtRuntime:
             return "quarantine_only", "analogical_hint"
 
         if cross_regime:
+            # El cruce ocurrió pero el residual NO se midió: sin evidencia no hay
+            # certificado. Antes este caso ni siquiera llegaba acá (cross_regime era
+            # False porque renorm_result era None) y podía terminar en `local_safe`:
+            # el cruce más incierto que existe cobraba el scope MÁS favorable.
+            if renorm_unmeasured:
+                return "quarantine_only", "analogical_hint"
             if inheritance_risk < 0.30 and edge_risk < 0.35 and organism_risk < 0.40:
                 return "inheritance_safe", ""
             if edge_risk < 0.50 and organism_risk < 0.55:
@@ -179,6 +230,11 @@ class ConstitutionalCourtRuntime:
                     "delta_modification": state.delta_modification,
                     "failure_modes": [f["name"] for f in failure_events],
                     "failure_events": failure_events,
+                    # B26.2: los ejes que el atlas NO pudo evaluar viajan al ledger.
+                    # Un `failure_events` vacío con `unmeasured_axes` no vacío NO es
+                    # un certificado de salud: es un certificado con agujeros.
+                    "unmeasured_axes": list(state.failure_atlas.unmeasured_axes),
+                    "atlas_complete": state.failure_atlas.is_complete,
                 },
                 "chain": {
                     "prev_state_id": prev_state_id,
@@ -205,7 +261,21 @@ class ConstitutionalCourtRuntime:
                 metadata={"mode": mode, "step_index": step_index},
             )
 
-    def ingest_episode(self, *, run_id: str, episode_result: Dict[str, Any]) -> CourtEpisodeResult | None:
+    def ingest_episode(
+        self,
+        *,
+        run_id: str,
+        episode_result: Dict[str, Any],
+        organism_state: OrganismState | None = None,
+    ) -> CourtEpisodeResult | None:
+        """Evalúa un episodio cerrado.
+
+        D-047 — `organism_state` es el estado POST-transición que produjo la
+        autoridad (`Kernel → Runner → transition_organism_state`). Cuando llega,
+        el tribunal lo OBSERVA y no acuña fisiología propia. Cuando no llega —el
+        camino del episodio mínimo, que no tiene `OrganismState`— el tribunal ES
+        la única autoridad y deriva como siempre.
+        """
         mode = get_t5_mode()
         if mode == "off":
             return None
@@ -221,13 +291,21 @@ class ConstitutionalCourtRuntime:
             trajectory = OrganismTrajectory(trajectory_id=f"traj-{run_id}")
             self._trajectory_by_run[run_id] = trajectory
 
-        snapshot = self.state_machine.advance(
-            trajectory=trajectory,
-            regime=scenario_name,
-            episode_result=episode_result,
-            new_snapshot_id=f"snap-{uuid4().hex[:12]}",
-            timestamp=timestamp,
-        )
+        if organism_state is not None:
+            snapshot = self.state_machine.observe(
+                trajectory=trajectory,
+                regime=scenario_name,
+                episode_result=episode_result,
+                authoritative_state=organism_state,
+            )
+        else:
+            snapshot = self.state_machine.advance(
+                trajectory=trajectory,
+                regime=scenario_name,
+                episode_result=episode_result,
+                new_snapshot_id=f"snap-{uuid4().hex[:12]}",
+                timestamp=timestamp,
+            )
 
         window = trajectory.window(8)
         digest = trajectory.digest(window_size=8)
@@ -278,15 +356,54 @@ class ConstitutionalCourtRuntime:
             window_size=8,
         )
 
+        # ── B26.2 — el cruce de régimen y su renormalización ──────────────────
+        # ANTES: si CUALQUIERA de los dos escenarios no tenía régimen latente, el
+        # bloque entero se salteaba en silencio — sin else, sin log, sin flag — y
+        # `renorm_residual` se quedaba en 0.0. Y 0.0 es el valor MÁS FAVORABLE:
+        #   - risk_process: `+ 0.12 * max(0.0, renorm_residual)` => CERO riesgo.
+        #   - failure_atlas: `if renorm_residual > 0.55` => `renorm_residual_spike`
+        #     INALCANZABLE.
+        # Es decir: el cruce más incierto que existe —uno hacia un régimen que el
+        # organismo NO CONOCE— se puntuaba como si la renormalización hubiera sido
+        # PERFECTA. Ausencia de dato = evidencia favorable, en la corte constitucional.
+        #
+        # AHORA: un cruce no renormalizable queda NO MEDIDO (None) y DECLARADO.
         prev_regime_name = self._last_regime_by_run.get(run_id)
         renorm_result: RenormalizationResult | None = None
-        renorm_residual = 0.0
-        renorm_uncertainty = 0.0
-        renorm_recovery_cost = 0.0
-        if prev_regime_name and prev_regime_name != scenario_name:
+        renorm_residual: float | None = None
+        renorm_uncertainty: float | None = None
+        renorm_recovery_cost: float | None = None
+        renorm_status: RenormalizationStatus = "not_applicable"
+        unrenormalizable_edge: tuple[str, ...] = ()
+
+        cross_regime = bool(prev_regime_name) and prev_regime_name != scenario_name
+        if cross_regime:
             source_regime = get_regime_for_scenario(prev_regime_name)
             target_regime = get_regime_for_scenario(scenario_name)
-            if source_regime is not None and target_regime is not None:
+
+            if source_regime is None or target_regime is None:
+                # NO MEDIDO. El organismo no sabe renormalizar este cruce.
+                # No se fabrica 0.0 (falsa salud) ni 1.0 (falso pánico): se declara.
+                renorm_status = "unmeasured"
+                unmapped = tuple(
+                    name
+                    for name, regime in (
+                        (prev_regime_name, source_regime),
+                        (scenario_name, target_regime),
+                    )
+                    if regime is None
+                )
+                unrenormalizable_edge = (str(prev_regime_name), str(scenario_name))
+                logger.warning(
+                    "B26.2: cruce de régimen NO renormalizable %s -> %s "
+                    "(sin régimen latente: %s). residual = NO MEDIDO (no 0.0). "
+                    "La corte no certifica transferencia sobre este cruce.",
+                    prev_regime_name,
+                    scenario_name,
+                    ", ".join(unmapped),
+                )
+            else:
+                renorm_status = "measured"
                 renorm_result = self.renorm_engine.renormalize(
                     source_regime=source_regime,
                     target_regime=target_regime,
@@ -328,6 +445,11 @@ class ConstitutionalCourtRuntime:
                     f"{renorm_result.renormalization_map.source_regime}->{renorm_result.renormalization_map.target_regime}",
                 )
             )
+        elif renorm_status == "unmeasured":
+            # B26.2: el borde EXISTE aunque no sepamos renormalizarlo. Antes no se
+            # abría scope de edge y el cruce desaparecía del ledger de riesgo.
+            # Se keya por nombre de escenario (no hay regime_id que usar).
+            scope_defs.append(("edge", f"{prev_regime_name}->{scenario_name}"))
 
         updates: Dict[str, RiskState] = {}
         for scope_type, scope_key in scope_defs:
@@ -347,6 +469,13 @@ class ConstitutionalCourtRuntime:
                 delta_modification=d_modification,
                 erosion=flow_result.erosion,
                 renorm_residual=renorm_residual,
+                # B85 — el status ya distingue los tres casos acá arriba; hay que PROPAGARLO.
+                # Sin esto, un episodio intra-escenario (donde no hubo cruce y por lo tanto
+                # NO HABÍA NADA que renormalizar) marcaba el atlas como incompleto, igual que
+                # un cruce real que no se pudo medir. Un agujero de verdad quedaba
+                # indistinguible del caso trivial, y "atlas incompleto" pasaba a ser la norma
+                # permanente — o sea, dejaba de significar algo.
+                renorm_not_applicable=(renorm_status == "not_applicable"),
             )
             state = self.risk_process.get(scope_type=scope_type, scope_key=scope_key)
             assert state is not None
@@ -369,7 +498,11 @@ class ConstitutionalCourtRuntime:
         edge_risk = edge_state.risk_score if edge_state is not None else 0.0
 
         canonical_scope, transfer_advice = self._scope_from_risk(
-            cross_regime=renorm_result is not None,
+            # B26.2: el cruce cuenta como cruce AUNQUE no se haya podido renormalizar.
+            # Antes era `renorm_result is not None`, así que un cruce no mapeado se le
+            # presentaba a la corte como "no hubo cruce" y podía cobrar `local_safe`.
+            cross_regime=cross_regime,
+            renorm_unmeasured=(renorm_status == "unmeasured"),
             modification_pending=snapshot.modification.lineage_delta_pending,
             flow_valid=flow_result.flow_validity,
             rollback=flow_result.rollback_obligation or viability.rollback_required,
@@ -400,5 +533,8 @@ class ConstitutionalCourtRuntime:
             renormalization_residual=renorm_residual,
             renormalization_uncertainty=renorm_uncertainty,
             expected_recovery_cost=renorm_recovery_cost,
+            renormalization_status=renorm_status,
+            unrenormalizable_edge=unrenormalizable_edge,
+            unmeasured_axes=tuple(organism_state.failure_atlas.unmeasured_axes),
         )
 

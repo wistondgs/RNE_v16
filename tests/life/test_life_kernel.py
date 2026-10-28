@@ -180,3 +180,41 @@ def test_checkpoint_manager_can_load_healthy_checkpoint(tmp_path: Path):
     payload, artifact = loaded
     assert payload["run_id"] == "life-healthy"
     assert artifact.metadata["healthy"] is True
+
+
+def test_non_acting_step_stores_the_vitals_it_computed(tmp_path: Path):
+    """El pestillo de rollback: curarse y no enterarse.
+
+    `step()` decide con `self.last_vitals`. La rama no-actuante RESTAURA el
+    último checkpoint sano y recomputa vitales frescos, pero durante un tiempo
+    no los guardaba: el paso siguiente releía los vitales enfermos y volvía a
+    decidir rollback, sin salida. Medido en vivo: muerte en el paso 32 y 117 de
+    150 pasos congelados repitiendo el mismo checkpoint, sin ejecutar un solo
+    episodio — y por tanto sin que el lazo de regulación adaptativa corriera.
+
+    Esta prueba fija el invariante mínimo: los vitales con los que la rama
+    no-actuante responde son los que quedan para decidir el siguiente paso.
+    """
+    storage = _storage(tmp_path)
+    kernel = LifeKernel(
+        config=LifeKernelConfig(
+            run_id="life-latch",
+            scenarios=("thermal_homeostasis",),
+            restore=False,
+            enable_msrc=False,
+        ),
+        storage=storage,
+    )
+    # Un primer paso real deja al organismo con historia y un checkpoint sano.
+    kernel.step()
+
+    # Se le fuerza el estado por el que el supervisor exige rollback.
+    kernel.last_vitals = _vitals(mode="rollback", reversible=False, viability_margin=0.02)
+    result = kernel.step()
+
+    assert result.decision.action == "rollback"
+    assert result.episode_result is None  # la rama no-actuante, en efecto
+    assert kernel.last_vitals is not None
+    assert kernel.last_vitals.mode == result.vital_signs.mode
+    assert kernel.last_vitals.viability_margin == result.vital_signs.viability_margin
+    assert kernel.last_vitals.reversible == result.vital_signs.reversible

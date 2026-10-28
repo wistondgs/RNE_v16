@@ -16,6 +16,22 @@ from runtime.reality.transition_analysis import (
 )
 
 
+_SEQUENCE = ["ABD", "ANA", "CAU", "CTF", "DED", "PROB"]
+
+
+def _trace(families=_SEQUENCE):
+    """Traza con la forma real de `ReasoningTraceStep.__dict__` (meta_scheduler).
+
+    B1: antes estos fixtures no traían traza y `trace_integrity` daba True igual
+    (era tautológico). Ahora se verifica de verdad, así que un episodio completo
+    tiene que traer su traza para representar lo que estos tests dicen medir.
+    """
+    return [
+        {"family": f, "status": "ok", "detail": {}, "timestamp": 1000.0 + i}
+        for i, f in enumerate(families)
+    ]
+
+
 def _make_episode(
     scenario_name, main_var, main_val, alarm, props, intervention,
     rk="support", cross_memory=False,
@@ -28,6 +44,7 @@ def _make_episode(
         }}]
     return {
         "episode": {
+            "trace": _trace(),
             "episode_id": f"ep-{scenario_name}",
             "scenario": scenario_name,
             "scenario_metadata": {"scenario_name": scenario_name, "main_variable": main_var},
@@ -41,7 +58,7 @@ def _make_episode(
             "result": {
                 "updated_world": {main_var: main_val - 0.03},
                 "relation_kind": rk,
-                "reasoning_sequence": ["ABD", "ANA", "CAU", "CTF", "DED", "PROB"],
+                "reasoning_sequence": list(_SEQUENCE),
             },
         },
     }

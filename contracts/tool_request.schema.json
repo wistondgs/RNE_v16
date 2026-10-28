@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "tool_request",
+  "description": "B20: capacidad de contrato RESERVADA, sin productor ni consumidor en el runtime actual (grep vacio en runtime/, scripts/, engines/). Es parte de la capa adaptadora que exige governance/adr/ADR_OPENCLAW_ACOPLAMIENTO.md (junto a tool_result y session_bridge), no del runtime RNFE. NO es contrato activo de CANON 13 (esos son 5: episodio, propuesta, certificado, rollback, telemetry snapshot) y por lo tanto NO se valida on-write. No retirar sin decision de producto/canon; mismo criterio que session_bridge (B23).",
   "type": "object",
   "required": ["request_id", "tool", "input"],
   "properties": {

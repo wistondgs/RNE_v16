@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
 from .config import StorageConfig
+from .contract_validation import enforce_event, enforce_record
 from .interfaces import StorageBackend
 from .records import (
     ArtifactRecord,
@@ -61,6 +62,9 @@ class StorageFacade:
             legacy_db_path=legacy_db_path,
             legacy_event_id=legacy_event_id,
         )
+        # B17: contrato activo (CANON §13). Los contratos episodio/propuesta/rollback
+        # viajan como payload de evento; se validan ANTES de persistir.
+        enforce_event(event_type, event.payload, origin="StorageFacade.append_event")
         return self.backend.append_event(event)
 
     def list_events(
@@ -85,6 +89,12 @@ class StorageFacade:
             run_id=run_id,
             metrics=dict(metrics),
             timestamp=timestamp or utc_now_iso(),
+        )
+        # B17: contrato activo (CANON §13).
+        enforce_record(
+            "telemetry_snapshot",
+            record,
+            origin="StorageFacade.write_telemetry_snapshot",
         )
         return self.backend.write_telemetry_snapshot(record)
 
@@ -214,6 +224,9 @@ class StorageFacade:
         timestamp: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> SessionBridgeRecord:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         record = SessionBridgeRecord(
             session_id=session_id,
             episode_id=episode_id,
@@ -224,6 +237,9 @@ class StorageFacade:
         return self.backend.upsert_session_bridge(record)
 
     def get_session_bridge(self, session_id: str) -> SessionBridgeRecord | None:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         return self.backend.get_session_bridge(session_id)
 
     def write_reality_assessment(
@@ -336,6 +352,12 @@ class StorageFacade:
             created_at=created_at or utc_now_iso(),
             metadata=dict(metadata or {}),
         )
+        # B17: contrato activo (CANON §13).
+        enforce_record(
+            "certificate",
+            record,
+            origin="StorageFacade.write_episode_certificate",
+        )
         return self.backend.write_episode_certificate(record)
 
     def get_episode_certificate(
@@ -389,6 +411,9 @@ class StorageFacade:
         scale: str,
         structure_json: Mapping[str, Any],
         ttl_seconds: int | None = None,
+        # B24: NO computado. El default `True` es un default de schema (columna
+        # NOT NULL), no una medición: nadie verifica la no-interferencia y nadie
+        # lee este campo. No confiar en él. Ver runtime/storage/records.py.
         no_interference: bool = True,
         certificate_id: str | None = None,
         ioc_proxy: float | None = None,
@@ -409,7 +434,16 @@ class StorageFacade:
             ioc_proxy=float(ioc_proxy) if ioc_proxy is not None else None,
             support_count=int(support_count),
             created_at=created_at or utc_now_iso(),
-            metadata=dict(metadata or {}),
+            # B24: marcador LEGIBLE POR MÁQUINA de que `no_interference` NO está computado.
+            # Declararlo solo en comentarios no alcanza: un consumidor programático —o un
+            # analista leyendo el ledger por SQL— ve `no_interference = True` y no tiene
+            # forma de distinguirlo de una medición real. Eso es exactamente lo que el
+            # paquete de honestidad (P9) vino a prohibir, así que la declaración tiene que
+            # viajar EN LOS DATOS, no en la prosa.
+            # Contract-safe: `contracts/memory_record.schema.json:26` declara `metadata` como
+            # object sin `additionalProperties: false` -> la clave es aditiva.
+            # El día que alguien compute de verdad la no-interferencia, esto pasa a True.
+            metadata={**dict(metadata or {}), "no_interference_computed": False},
         )
         return self.backend.write_memory_record(record)
 
@@ -427,6 +461,10 @@ class StorageFacade:
             min_ioc_proxy=min_ioc_proxy,
             limit=limit,
         )
+
+    def purge_expired_memory_records(self) -> int:
+        """B2 - Borra memorias expiradas por TTL; devuelve la cantidad borrada."""
+        return self.backend.purge_expired_memory_records()
 
     # ───────────────  Transfer Assessment  ────────────────────────────────────
 

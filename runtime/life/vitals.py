@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Dict
 
+from runtime.certification.transfer_assessment import purity_not_applicable
 from runtime.organism.lineage import LineageState
 from runtime.organism.state import OrganismState
 
@@ -63,6 +65,29 @@ class VitalSignsService:
         risk_plus = cert_meta.get("risk_plus") or {}
         omega = cert_meta.get("omega") or {}
 
+        # ── P9.6 paso 5 — LA SEGUNDA FABRICACIÓN ─────────────────────────────
+        # Aunque `transfer_assessment` deje de emitir la clave, ESTA CAPA la reinventaba por
+        # su cuenta: `continuity` default 1.0 y `memory_purity` default 1.0. Dos mentiras
+        # independientes, cada una capaz de sostener la ilusión sola.
+        #
+        # Ahora, cuando el dato no existe, el eje se marca NO VERIFICADO (patrón B73 ya en
+        # el contrato: `VitalSignsSnapshot.unverified_fields`). El relleno se conserva —para
+        # no mentir en el otro sentido, "el organismo agoniza"— pero NINGUNA COMPUERTA puede
+        # apoyarse en él: `is_restorable` / `is_stable` se abstienen ante un eje no
+        # verificado. Ausencia de dato NO es salud.
+        unverified: set[str] = set()
+        # B85 — el TERCER estado. Hasta ahora `memory_purity_basis` VIAJABA con el certificado
+        # y NINGUNA compuerta lo leía (cero consumidores de producción): la etiqueta existía,
+        # pero la compuerta seguía consumiendo el 1.0 vacuo como si fuera evidencia. Acá se
+        # empieza a leer.
+        not_applicable: set[str] = set()
+
+        # Sin certificado (bootstrap: el organismo todavía no vivió un episodio) no hay
+        # NINGUNA medición de continuidad. Nótese que ya hoy el refugio estaba cerrado en ese
+        # caso —`risk` cae a 1.0 y `is_restorable` exige < 0.50—, así que marcarlo no le quita
+        # al organismo ningún refugio que antes tuviera: solo dice la verdad de por qué.
+        if cert is None:
+            unverified.add("continuity_score")
         continuity = _as_float(getattr(cert, "continuity_score", None), 1.0)
         ioc = _as_float(getattr(cert, "ioc_proxy", None), 0.0)
         risk = _as_float(getattr(cert, "risk_score", None), 1.0 - ioc)
@@ -75,7 +100,37 @@ class VitalSignsService:
         )
         recovery_debt = _as_float(organism_state.viability.recovery_debt, 0.0)
         accumulated_drift = _as_float(organism_state.policy.accumulated_drift, 0.0)
-        memory_purity = _as_float(transfer.get("memory_purity_score"), 1.0)
+        # LA PIEZA DE LA QUE CUELGA EL REFUGIO:
+        #   memory_purity → is_restorable (≥0.85) → checkpoints.py (`healthy`) →
+        #   kernel.py:530 (el rollback se BLOQUEA sin `healthy_checkpoint` en la evidencia).
+        # Fabricar un 1.0 acá hacía que CUALQUIER checkpoint se declarara refugio válido.
+        # Pero marcarlo "no verificado" cuando SÍ se puede medir dejaría al organismo sin
+        # refugio ninguno — peor todavía. Por eso el paso 1 cableó la medición: en el camino
+        # vivo `memory_purity_score` ahora viene MEDIDO en todo episodio (del retrieval del
+        # propio episodio), así que el refugio sobrevive con pureza ganada, no regalada.
+        # Si aun así falta (certificado viejo, o pre-P9.6): AUSENCIA, no 1.0.
+        #
+        # B85 — y hay un tercer caso que ni "medida" ni "ausente" describen. Si el episodio no
+        # recuperó NINGÚN hit, no hay memoria que pueda estar contaminada — que es lo único
+        # que esa compuerta existe para impedir. El eje NO APLICA: no bloquea el refugio
+        # (correcto: no hay nada que impedir) pero tampoco es una pureza verificada. El
+        # certificado ya lo dice (`not_applicable_fields` / `memory_purity_basis`); acá se LEE.
+        purity_basis = transfer.get("memory_purity_basis") or {}
+        declared_na = transfer.get("not_applicable_fields") or ()
+        raw_purity = transfer.get("memory_purity_score")
+        if raw_purity is None:
+            unverified.add("memory_purity")
+        elif "memory_purity" in declared_na or purity_not_applicable(purity_basis):
+            # `purity_not_applicable` es la SSOT del predicado (incluye el back-compat con
+            # `contamination_opportunity` para certificados pre-B85). ANTES esta compuerta
+            # REIMPLEMENTABA el predicado inline y las dos versiones YA DIVERGÍAN: la SSOT
+            # prioriza `status`, la copia lo ignoraba. Con un basis
+            # {"status": "measured", "contamination_opportunity": False} la SSOT decía "sí
+            # aplica" y la compuerta decía "no aplica" — la deriva exacta que una SSOT existe
+            # para impedir. Y era, además, el mismo pecado que B85 vino a matar: una
+            # capacidad declarada que ninguna compuerta consumía.
+            not_applicable.add("memory_purity")
+        memory_purity = _as_float(raw_purity, 1.0)
         resource_pressure = _as_float(
             (risk_plus.get("b_safe") or {}).get("pressure"),
             0.0,
@@ -124,14 +179,20 @@ class VitalSignsService:
                 "sie_verdict": risk_plus.get("sie_verdict"),
                 "delta_ioc": risk_plus.get("delta_ioc"),
                 "omega_delta_ioc_star": omega.get("delta_ioc_star"),
+                # P9.6: la procedencia de la pureza viaja con los vitales. Un 1.0 con
+                # `contamination_opportunity: False` es un 1.0 vacuo (no hubo memoria que
+                # pudiera contaminar), no una pureza verificada.
+                "memory_purity_basis": purity_basis if isinstance(purity_basis, dict) else {},
             },
+            unverified_fields=frozenset(unverified),
+            not_applicable_axes=frozenset(not_applicable),
         )
-        return VitalSignsSnapshot(
-            **{
-                **draft.to_dict(),
-                "mode": mode_for_vitals(draft),
-            }
-        )
+        # `replace` (y no `VitalSignsSnapshot(**draft.to_dict())`): `to_dict()` serializa
+        # `unverified_fields` como lista ordenada —o la omite si está vacía—, así que
+        # reconstruir desde ahí metería una list donde el contrato declara frozenset y, peor,
+        # PERDERÍA la no-verificación al re-serializar. La ausencia tiene que sobrevivir el
+        # viaje: es justamente lo que no puede lavarse.
+        return replace(draft, mode=mode_for_vitals(draft))
 
     def bootstrap(
         self,

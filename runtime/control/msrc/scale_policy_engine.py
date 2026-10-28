@@ -43,7 +43,23 @@ class RegimeProfile:
 
 
 class ScalePolicyEngine:
-    """Aplica objetivo lexicográfico: cognición -> viabilidad -> coste meta."""
+    """Aplica objetivo lexicográfico: cognición -> viabilidad -> coste meta.
+
+    DECIDE, NO APLICA. ``decide()`` devuelve una ``ScaleAction`` con la escala
+    destino en ``target_scale_id`` y NO escribe ``state.current_scale_id``: el
+    commit de la escala es de ``MSRCController.step``, y solo ocurre si el
+    transition manager no aborta (CANON §3.1.6, atomicidad).
+
+    Este motor sí actualiza el estado de POLÍTICA (evidencia, cooldown, lock,
+    regret, historial): eso es hysteresis de la decisión, no la aplicación del
+    cambio. El cooldown/lock se mantienen aunque la transición aborte después, lo
+    que es conservador a propósito: evita martillar una transición que falla.
+
+    Antes escribía ``state.current_scale_id`` acá mismo. Como el controller le
+    pasaba después ese estado ya mutado al transition manager, un abort devolvía
+    "la escala actual"... que ya era la NUEVA: la transición fallida quedaba
+    aplicada igual, con ``rollback_applied=True`` en el registro.
+    """
 
     def __init__(
         self,
@@ -562,7 +578,10 @@ class ScalePolicyEngine:
                 ),
             )
 
-        state.current_scale_id = selected.scale_id
+        # SSOT: NO se escribe `state.current_scale_id` acá. Este motor DECIDE; el
+        # commit de la escala lo hace MSRCController.step con lo que devuelve el
+        # transition manager, y solo si la transición no aborta. La escala destino
+        # ya viaja en `target_scale_id` de la acción.
         state.cooldown_remaining = profile.cooldown_steps
         state.lock_remaining = profile.post_commit_lock
         state.upgrade_evidence = 0
@@ -660,7 +679,7 @@ class ScalePolicyEngine:
                 ),
             )
 
-        state.current_scale_id = selected_spec.scale_id
+        # SSOT: el commit de escala es del controller (ver _decide_upgrade_regime_v3).
         state.cooldown_remaining = profile.cooldown_steps
         state.lock_remaining = max(1, profile.post_commit_lock - 1)
         state.downgrade_evidence = 0
@@ -766,7 +785,7 @@ class ScalePolicyEngine:
             commit = commit and probe_result.cognitive_gain_delta >= -0.005
 
         if commit:
-            state.current_scale_id = target
+            # SSOT: el commit de escala es del controller (ver _decide_upgrade_regime_v3).
             state.cooldown_remaining = profile.cooldown_steps
             state.lock_remaining = profile.post_commit_lock
             return ScaleAction(
@@ -815,7 +834,7 @@ class ScalePolicyEngine:
             and probe_result.viability_preserved
             and probe_result.evidence_score >= self.probe_commit_threshold
         ):
-            state.current_scale_id = target
+            # SSOT: el commit de escala es del controller (ver _decide_upgrade_regime_v3).
             state.cooldown_remaining = self.cooldown_steps
             state.lock_remaining = self.post_commit_lock
             action = ScaleAction(
@@ -923,7 +942,7 @@ class ScalePolicyEngine:
             state.register_action(action.action_type)
             return action
 
-        state.current_scale_id = selected.scale_id
+        # SSOT: el commit de escala es del controller (ver _decide_upgrade_regime_v3).
         state.cooldown_remaining = self.cooldown_steps
         state.lock_remaining = self.post_commit_lock
         action = ScaleAction(
@@ -1016,7 +1035,7 @@ class ScalePolicyEngine:
             state.register_action(action.action_type)
             return action
 
-        state.current_scale_id = selected_spec.scale_id
+        # SSOT: el commit de escala es del controller (ver _decide_upgrade_regime_v3).
         state.cooldown_remaining = self.cooldown_steps
         state.lock_remaining = max(1, self.post_commit_lock - 1)
         action = ScaleAction(

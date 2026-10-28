@@ -46,3 +46,6 @@ data/tmp/
 
 # Scratch de scripts de corrida (sqlite + artefactos por episodio, regenerable)
 data/reports/**/_work/
+
+# Cartografía: el mapa se versiona, su base de medición no.
+.cartografia/

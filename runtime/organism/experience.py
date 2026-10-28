@@ -218,6 +218,10 @@ class ExperienceStore:
                 certificate_id=None,
                 ioc_proxy=exp.ioc,
                 ttl_seconds=ttl,
+                # B24: campo NO computado; se escribe True por default de schema
+                # (columna NOT NULL). No confiar en este valor: nadie verificó que
+                # esta experiencia no interfiera con otras memorias, y no hay
+                # consumidor. Ver runtime/storage/records.py.
                 no_interference=True,
                 support_count=1,
                 metadata={"origin": "experience", "run_id": exp.run_id, "wound": exp.wound},

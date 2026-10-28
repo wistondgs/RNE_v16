@@ -18,6 +18,7 @@ from .risk_engine import (
     compute_cvar,
     sie_rule,
 )
+from .trace_integrity import TraceIntegrityResult, assess_trace_integrity
 
 __all__ = [
     "CertificateBuilder",
@@ -34,8 +35,10 @@ __all__ = [
     "compute_b_safe",
     "compute_cvar",
     "sie_rule",
+    "TraceIntegrityResult",
     "TransferAssessment",
     "TransferVerdict",
+    "assess_trace_integrity",
     "assess_transfer",
 ]
 

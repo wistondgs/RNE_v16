@@ -8,6 +8,21 @@ from runtime.reality.transition_analysis import TransitionContinuityVector
 from runtime.world.compatibility import CompatibilityAssessment
 
 
+_SEQUENCE = ["ABD", "ANA", "CAU", "CTF", "DED", "PROB"]
+
+
+def _trace(families=_SEQUENCE):
+    """Traza con la forma real de `ReasoningTraceStep.__dict__` (B1).
+
+    Sin traza, `trace_integrity` ahora es False (antes: True tautológico), así
+    que un episodio "completo" debe traerla para representar lo que se mide acá.
+    """
+    return [
+        {"family": f, "status": "ok", "detail": {}, "timestamp": 1000.0 + i}
+        for i, f in enumerate(families)
+    ]
+
+
 def _ep(scenario="thermal_homeostasis", cross_mem=False):
     mem = []
     if cross_mem:
@@ -17,6 +32,7 @@ def _ep(scenario="thermal_homeostasis", cross_mem=False):
         }}]
     return {
         "episode": {
+            "trace": _trace(),
             "episode_id": f"ep-{scenario}",
             "scenario": scenario,
             "scenario_metadata": {"scenario_name": scenario, "main_variable": "temperature"},
@@ -30,7 +46,7 @@ def _ep(scenario="thermal_homeostasis", cross_mem=False):
             "result": {
                 "updated_world": {"temperature": 0.83},
                 "relation_kind": "support",
-                "reasoning_sequence": ["ABD", "ANA", "CAU", "CTF", "DED", "PROB"],
+                "reasoning_sequence": list(_SEQUENCE),
             },
         },
     }

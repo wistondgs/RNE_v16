@@ -75,8 +75,7 @@ Fuentes autoritativas (fuera del vault): `RNE_v16_analysis/reparacion/adjudicaci
 | **P20** | Migración del ledger core↔storage | código/profundo | B11 | — |
 | **P21** | Flujo de datos experiencia/maestro (auditoría externa) | código/profundo | B42, B43, B44, B45 | — |
 | **P22** | Canal de configuración explícito de ecology | código/profundo | B34 | P16 |
-| **P23** | Invariante de bloqueo + identidad causal del gate | código/profundo | B39, B48 | — |
-| **P-CADENA-CAUSAL** | Sobre de correlación causal (`CausalContext`) = WS3 | código/profundo | B41 | — |
+| **P23** | Identidad e invariante de bloqueo del life kernel | código/profundo | B39, B48, B41 | — |
 | **P24** | Alcanzar tier_3 externo por la vía gobernada | código/profundo | B40 | P14 |
 | **P25** | Telemetría al camino vivo | código/profundo | B12 | — |
 | **P26** | Exocortex al camino vivo | código/profundo | B35 | — |
@@ -98,31 +97,16 @@ Cúspide `A15`+`A14`, `A20`+`A19` primero (P0, P1) · `A15` sanea antes de A10�
 
 ## Estado de ejecución
 
-> [!success] P0 — INGESTA-CANON: **RATIFICADO Y EN GITHUB** (2026-07-10)
-> Cúspide `canon/normative/RNFE_canon_matematico_f2_4_v3_0.md` creada; cadena de autoridad re-anclada v3.1→v3.2 (A15) en SSOT_RAZONAMIENTOS, ROADMAP_v2 y blueprint; **A1 resuelto** (doble capa: el certificado MIDE `C^cont`, la promoción GATEA); **A14** aplicado al blueprint. Commits `8a55fe8` (cúspide + A15) + `34cd3a3` (A14). **`main` unificado por fast-forward a `34cd3a3`** (Codex lee la misma ley y el mismo código) y tag **`canon-apex-v3.0`** sobre ese commit. Trece paquetes citan la cúspide como ley.
+> [!info] P0 — INGESTA-CANON: **DESPACHADO** (2026-07-10) a `ejecutor-profundo`
+> Reconstruye `canon/normative/RNFE_canon_matematico_f2_4_v3_0.md` desde el genoma matemático (`canon_inbox/`: f2_2, f2_3, f2_4, f2_1-addendum), re-ancla la cadena de autoridad (depends_on v3_1→v3_2 en SSOT_RAZONAMIENTOS, ROADMAP_v2, blueprint), propone promociones A14 y reporta la doble capa de A1. Autorización de escritura solo en canon/ + 3 frontmatters; sin commit; termina en PAUSA para ratificación humana.
 
-### Protocolo de coordinación con la campaña neural (Codex) — VIGENTE
-Regla permanente: ver [[Protocolo de coordinación campaña neural]]. Partición por zona (reparación dueña de kernel/gate, storage, experience, contracts, canon · campaña N dueña de `runtime/neural/` y adaptadores · compartidas `scheduler_meta`/`world` → `git log origin/main` + rebase+baseline antes de despachar). **Nada de reparar dentro de `runtime/neural/`** (se reporta a Codex). Sync tras cada PR mergeado → `externa/sync_campana_neural.md`.
+### Reorden acordado (aplicar al llegar a fase 2)
+- **P-SEG (nuevo, adelantado por riesgo):** paquete de seguridad del gate `B48 + B39` a `ejecutor-profundo`, ANTES de los backends de storage. Tocan las mismas líneas (`kernel.py:455-513`); B39 replica el patrón correcto que ya existe en la rama de paso (500-513) en las 3 ramas transformadoras; B48 = invariante total de bloqueo + separación `validation_tier`/`execution_tier`. Separar limpio de **B41** (organism_id queda en fase 4 — B39 propaga el id que EXISTA, no cambia su definición). Tests obligatorios del hueco H5 (hoy sin cobertura). `auditor-reparacion` al cierre.
 
-**Sustrato antes que órgano — dependencias DURAS de aterrizaje:**
-- **B48 + B39 (gate)** ⟶ prerequisito de **N1**. Se adelanta como **P-SEG** antes de los storage backends: tocan `kernel.py:455-513`; B39 replica el patrón correcto de la rama de paso (500-513) en las 3 ramas transformadoras; B48 = invariante total de bloqueo + `validation_tier`/`execution_tier`. Separar limpio de B41. Tests del hueco H5. `auditor-reparacion` al cierre.
-- **B41 + B42–B45 (identidad y experiencia)** ⟶ prerequisito de **N3**. Se adelantan. B41 vive ahora en **P-CADENA-CAUSAL** (WS3), no en P23.
+### Encolados (NO despachar hasta ratificación)
+- **P1 = B (re-emisión del ROADMAP; A20/A19/A17)** → `ejecutor-profundo`, escritura en `canon/provisional`. Para cuando se ratifique P0. Declara la FASE VIGENTE con el campo marcado `PENDIENTE-HUMANO` (el número lo fija el humano); absorbe/supersede el plan Fase 0/WS0→WS7 con tabla WS↔paquete (WS3≈CADENA-CAUSAL, WS1/WS2≈B3/B38, WS7≈consagración SSOT); A19: thermal_homeostasis = PMV; A17: 4 escenarios + taxonomía de 5 morfismos a SCENARIO_CONTRACTS. PAUSA con ROADMAP + tabla WS↔paquete.
 
-> [!success] P1 — RE-EMISIÓN DEL ROADMAP: **RATIFICADO, en `feat`** (2026-07-10)
-> `ROADMAP_RNFE_v2.md` v3.0.0 (fusión de 3 planes P0–P30 / WS0→WS7 / N0→N6, tabla WS↔P↔N, campaña N como track de crecimiento con promoción experimental→shadow→provisional + ADR por órgano) y `SCENARIO_CONTRACTS_v1.md` v1.1.0 (A17: 4 escenarios + 5 morfismos). A19: PMV = `thermal_homeostasis`.
-
-**Deltas de la ratificación de P1:**
-- **`FASE_VIGENTE = 1`** (Infraestructura basal) — **propuesto por el orquestador, PENDIENTE DE CONFIRMACIÓN HUMANA**. Fase 0 se da por cumplida con `canon-apex-v3.0`. Hasta que se confirme, P1 **no pasa a `main`**.
-- **`P-CADENA-CAUSAL`** (nuevo paquete-P profundo, WS3): construye `CausalContext` + cadena por IDs; **B41 se movió aquí desde P23**. Prereq de todo N. *(Su posición de secuencia — foundational WS3 vs. el slot fase-4 que tenía B41 — queda por revisar.)*
-- **N0/N2/N4** + scope fino de N1/N3/N5/N6 = `PENDIENTE-CODEX` (no hay spec en el repo; Codex en pausa).
-
-**Estado git:** P1 committeado en `feat` (canon), **NO en `main`** — `main` queda en `canon-apex-v3.0` (`34cd3a3`) hasta que el número de fase se confirme. La memoria de coordinación se queda en `feat`, fuera de `main`, hasta nuevo aviso.
-
-> [!success] ACTUALIZACIÓN 2026-07-10 — P1, A-M0 y campaña neural EN MAIN
-> FASE_VIGENTE=1 confirmada → P1 promovido a main (cherry-pick `f3db397`+`a506540`). A-M0 (`4ab700c`) y la **campaña neural N0–N6 de Codex** (`3121b4c`, inerte, default `OFF`) mergeadas a main tras **auditoría de contexto fresco** (14 CONFIRMADO / 3 MATIZADO / 0 refutado) y **verificación ejecutada** (26 tests verde, cero imports en caminos vivos por comando). **`main = 3121b4c`.** **P-SEG (B48+B39)** committeado en feat (`b0452cd`, `auditor-reparacion`: APROBAR, suite 1125 verde). Detalle: [[Auditoría y merge campaña neural N0-N6 2026-07-10]].
->
-> **Gate de promoción neural (shadow→provisional, por órgano):** (1) tests `artifact-missing` + `schema-inválido` y matriz de ~17 categorías (CC4); (2) campo "criterio de promoción" en los 7 ADRs (CC5). Ningún órgano sale de shadow sin eso.
-> **Pendiente:** promoción de P-SEG a main; re-tag opcional `canon-apex-v3.1` (A-M0 ya en main).
+**Foco de revisión al volver P0:** cómo resolvió la **doble capa de A1** (certificado MIDE C^cont / promoción GATEA) — de ahí cuelga toda la doctrina posterior.
 
 ## Related
 

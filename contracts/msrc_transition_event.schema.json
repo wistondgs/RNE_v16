@@ -1,6 +1,7 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "MSRC Transition Event",
+  "description": "Evento de transicion de escala del MSRC. El contrato exige estimated_* Y real_* juntos porque existe para poder COMPARARLOS: el estimado sale del catalogo, el real solo de una medicion. Un real_* que no se midio va como null y su nombre queda en unmeasured_costs; NUNCA se rellena con la estimacion ni con un 0.0 inventado. Ojo: las unidades no son conmensurables (estimated_* es relativo del catalogo, real_time_cost es milisegundos); ver metadata.cost_units antes de restarlos.",
   "type": "object",
   "required": [
     "run_id",
@@ -15,7 +16,7 @@
     "real_artifact_cost",
     "ioc_delta",
     "viability_delta",
-    "rollback_applied",
+    "transition_aborted",
     "timestamp"
   ],
   "properties": {
@@ -36,15 +37,51 @@
     "source_scale_id": {"type": "string"},
     "target_scale_id": {"type": "string"},
     "reason": {"type": "string"},
-    "estimated_time_cost": {"type": "number"},
-    "estimated_artifact_cost": {"type": "number"},
-    "real_time_cost": {"type": "number"},
-    "real_artifact_cost": {"type": "number"},
+    "estimated_time_cost": {
+      "type": "number",
+      "description": "Prediccion del catalogo para la escala destino (unidad: catalog_relative)."
+    },
+    "estimated_artifact_cost": {
+      "type": "number",
+      "description": "Prediccion del catalogo para la escala destino (unidad: catalog_relative)."
+    },
+    "real_time_cost": {
+      "type": ["number", "null"],
+      "description": "Coste de tiempo MEDIDO (milisegundos). null = NO MEDIDO (ver unmeasured_costs). Hoy solo lo mide fork_probe -que ejecuta un episodio real en la escala destino- y commit_probe_result, que commitea esa medicion. NOTA A18: este campo esta pendiente de renombre; la nulabilidad se agrego aparte y no colisiona con el rename."
+    },
+    "real_artifact_cost": {
+      "type": ["number", "null"],
+      "description": "Coste de artefactos MEDIDO. null = NO MEDIDO (ver unmeasured_costs). Hoy ningun productor de ProbeResult instrumenta artefactos, asi que en la practica es null. NOTA A18: pendiente de renombre."
+    },
     "ioc_delta": {"type": "number"},
     "viability_delta": {"type": "number"},
-    "rollback_applied": {"type": "boolean"},
+    "transition_aborted": {
+      "type": "boolean",
+      "description": "La transicion se ABORTO antes de aplicarse. No es un rollback: el commit de la escala lo hace MSRCController.step con lo que devuelve el transition manager, y solo en el camino de exito; si aborta, la escala nunca se aplico y no hay nada que revertir."
+    },
+    "abort_reason": {
+      "type": ["string", "null"],
+      "description": "Motivo del abort (tipo y mensaje de la excepcion). null si no hubo abort."
+    },
+    "rollback_applied": {
+      "type": "boolean",
+      "description": "ALIAS LEGACY de transition_aborted, derivado y de solo lectura. NO es required a proposito: es una @property de ScaleTransitionRecord, no un campo de la dataclass, asi que un serializador generico (asdict) no lo produce; exigirlo rompería cualquier chequeo schema<->dataclass. ScaleTransitionRecord.to_dict() SI lo emite, que es el camino que usan los consumidores vivos (ScaleAuditLogger -> event_type msrc.rollback; reality/msrc_policy_benchmark). El nombre miente: nada se revierte porque nada se aplico. Usar transition_aborted."
+    },
+    "unmeasured_costs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Nombres de los campos real_* que NO se midieron en esta transicion. Misma doctrina que unmeasured_vitals (control/homeostasis/life_monitor.py) y unverified_fields (life/contracts.py): lo que no se puede medir se declara, no se rellena."
+    },
+    "cost_measurement_source": {
+      "type": "string",
+      "enum": ["none", "probe_execution", "probe_reported"],
+      "description": "De donde salio la medicion de real_*. 'none' = no hubo medicion."
+    },
     "timestamp": {"type": "string"},
-    "metadata": {"type": "object"}
+    "metadata": {
+      "type": "object",
+      "description": "Incluye cost_units, que declara que estimated_* y real_* NO comparten unidad."
+    }
   },
   "additionalProperties": true
 }

@@ -15,9 +15,7 @@ CONDITIONAL_SHADOW_FAMILIES: List[str] = ["ind", "eml_sr"]
 DELIBERATIVE_FAMILIES: List[str] = ["plan", "opt"]
 EXTERNAL_EXPERIMENTAL_FAMILIES: List[str] = ["ext_open_thinker"]
 OPTIONAL_FAMILIES: List[str] = list(AUGMENTER_FAMILIES) + list(CONDITIONAL_SHADOW_FAMILIES)
-TRACKED_OPTIONAL_FAMILIES: List[str] = (
-    list(OPTIONAL_FAMILIES) + list(EXTERNAL_EXPERIMENTAL_FAMILIES) + ["mci"]
-)
+TRACKED_OPTIONAL_FAMILIES: List[str] = list(OPTIONAL_FAMILIES) + list(EXTERNAL_EXPERIMENTAL_FAMILIES)
 
 
 @dataclass(frozen=True)
@@ -261,26 +259,6 @@ PROFILES: Dict[str, FamilyProfile] = {
         optional_families=["opt"],
         adaptive=False,
         description="Core + optimización deliberativa (aislamiento por familia).",
-    ),
-    "mci_integrated_v1": FamilyProfile(
-        name="mci_integrated_v1",
-        core_sequence=list(CORE_SEQUENCE),
-        optional_families=["mci", "plan", "opt", "ind"],
-        adaptive=False,
-        description=(
-            "Perfil explícito MCI con autoridad guardada; conserva PLAN, OPT e IND "
-            "como competidores y fallback."
-        ),
-    ),
-    "mci_n4_closed_loop_v1": FamilyProfile(
-        name="mci_n4_closed_loop_v1",
-        core_sequence=list(CORE_SEQUENCE),
-        optional_families=["mci", "plan", "opt", "ind"],
-        adaptive=False,
-        description=(
-            "Perfil explícito MCI+N4 proposal-only con validación causal, "
-            "planificación y autoridad guardada."
-        ),
     ),
     "full_family_deep_v1": FamilyProfile(
         name="full_family_deep_v1",

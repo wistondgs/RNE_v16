@@ -37,6 +37,18 @@ from .router import ComputeRouter
 from .validators import OperationalValidatorStack
 
 
+def _or_default(value: Any, default: float) -> float:
+    """Sustituye el AUSENTE por el default; nunca el cero medido.
+
+    `x or D` parece hacer esto y no lo hace: en Python `0.0` es falsy, así que
+    una medición de cero —la más informativa que hay, porque significa que la
+    cantidad se midió y dio nada— se reemplaza por el default. Sobre una pureza
+    de memoria o un margen de viabilidad, eso invierte el sentido justo en el
+    borde, que es donde importa.
+    """
+    return float(default) if value is None else float(value)
+
+
 class OperationalConjunctionLayer:
     """Coordinate evidence, causality, compute, validators, and compensations."""
 
@@ -209,7 +221,10 @@ class OperationalConjunctionLayer:
             requested_mode=autonomy_policy,
             risk_score=raw_risk,
             resource_pressure=resource_pressure,
-            memory_purity=float(getattr(vitals, "memory_purity", 1.0) or 1.0),
+            # Sin `or 1.0`. `min_memory_purity` es un invariante constitucional
+            # DURO: una pureza medida de 0.0 debe disparar violación y cuarentena.
+            # El `or` la leía como pureza perfecta y el invariante no se enteraba.
+            memory_purity=_or_default(getattr(vitals, "memory_purity", None), 1.0),
             agent_policy_present=True,
             operational_conjunction_enabled=True,
             resource_pressure_limit=0.85,
@@ -775,7 +790,7 @@ class OperationalConjunctionLayer:
         if self.storage is None:
             return None
         try:
-            from runtime.life.checkpoints import LIFE_CHECKPOINT_KIND
+            from runtime.core.checkpoint_kinds import LIFE_CHECKPOINT_KIND
 
             artifacts = self.storage.list_artifacts(
                 run_id=run_id,
@@ -870,7 +885,7 @@ class OperationalConjunctionLayer:
 
     @staticmethod
     def _uncertainty(*, vitals: Any, evidence: tuple[EvidenceItem, ...]) -> float:
-        cognitive_quality = float(getattr(vitals, "cognitive_quality", 0.5) or 0.5)
+        cognitive_quality = _or_default(getattr(vitals, "cognitive_quality", None), 0.5)
         memory_bonus = 0.20 if any(item.kind == "memory_rag" for item in evidence) else 0.0
         conflict_penalty = 0.35 if any(item.kind == "conflict" for item in evidence) else 0.0
         return max(0.0, min(1.0, 1.0 - cognitive_quality - memory_bonus + conflict_penalty))

@@ -34,6 +34,26 @@ from ..records import (
 )
 
 
+# B2 - Edad de una fila de memory_records en segundos (now - created_at) usando
+# el reloj UTC de SQLite. strftime('%s', ...) parsea el ISO-8601 UTC de created_at.
+_MEMORY_AGE_SECONDS_SQL = (
+    "(CAST(strftime('%s', 'now') AS INTEGER) "
+    "- CAST(strftime('%s', created_at) AS INTEGER))"
+)
+# Condicion "NO expirada" para filtrar en lectura.
+_MEMORY_NOT_EXPIRED_SQL = (
+    "(ttl_seconds IS NULL "
+    "OR strftime('%s', created_at) IS NULL "
+    f"OR {_MEMORY_AGE_SECONDS_SQL} <= ttl_seconds)"
+)
+# Condicion "expirada" para purgar (complemento estricto de la anterior).
+_MEMORY_EXPIRED_SQL = (
+    "ttl_seconds IS NOT NULL "
+    "AND strftime('%s', created_at) IS NOT NULL "
+    f"AND {_MEMORY_AGE_SECONDS_SQL} > ttl_seconds"
+)
+
+
 def _safe_json_load(raw: str | None) -> dict:
     if not raw:
         return {}
@@ -529,6 +549,9 @@ class SQLiteStorageBackend(StorageBackend):
     def upsert_session_bridge(
         self, record: SessionBridgeRecord
     ) -> SessionBridgeRecord:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         with self._lock, self._connect() as conn:
             conn.execute(
                 """
@@ -552,6 +575,9 @@ class SQLiteStorageBackend(StorageBackend):
         return record
 
     def get_session_bridge(self, session_id: str) -> SessionBridgeRecord | None:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -918,6 +944,11 @@ class SQLiteStorageBackend(StorageBackend):
         if min_ioc_proxy is not None:
             clauses.append("ioc_proxy >= ?")
             params.append(min_ioc_proxy)
+        # B2 - Aplicar TTL en lectura: excluir memorias expiradas. Una memoria
+        # expira cuando now > created_at + ttl_seconds. ttl_seconds NULL = sin
+        # expiracion; un created_at no parseable se trata como sin expiracion
+        # (defensivo, no deberia ocurrir: siempre lo escribe utc_now_iso()).
+        clauses.append(_MEMORY_NOT_EXPIRED_SQL)
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY created_at DESC LIMIT ?"
@@ -942,17 +973,47 @@ class SQLiteStorageBackend(StorageBackend):
             for row in rows
         ]
 
+    def purge_expired_memory_records(self) -> int:
+        """B2 - Borra las memorias expiradas (now > created_at + ttl_seconds).
+
+        Devuelve la cantidad de filas borradas. Las memorias con ttl_seconds NULL
+        nunca expiran.
+        """
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute(
+                f"DELETE FROM memory_records WHERE {_MEMORY_EXPIRED_SQL}"
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+        return int(deleted)
+
     def write_transfer_assessment(
         self, assessment: TransferAssessmentRecord,
     ) -> TransferAssessmentRecord:
+        # B46 - Semantica de created_at: es el TIEMPO DE CREACION del assessment,
+        # por lo que se PRESERVA en un re-write del mismo assessment_id (igual que
+        # el backend Postgres). Antes se usaba `INSERT OR REPLACE`, que borra la
+        # fila e inserta una nueva (pisando created_at con el valor entrante).
+        # Ahora usamos upsert (SQLite >= 3.24): actualiza TODAS las columnas
+        # EXCEPTO created_at, que conserva el valor original de la fila existente.
         with self._lock, self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO transfer_assessments
+                INSERT INTO transfer_assessments
                 (assessment_id, run_id, episode_id, source_scenario, target_scenario,
                  compatibility_class, transfer_verdict, memory_purity_score,
                  transition_stability_score, metadata, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(assessment_id) DO UPDATE SET
+                    run_id=excluded.run_id,
+                    episode_id=excluded.episode_id,
+                    source_scenario=excluded.source_scenario,
+                    target_scenario=excluded.target_scenario,
+                    compatibility_class=excluded.compatibility_class,
+                    transfer_verdict=excluded.transfer_verdict,
+                    memory_purity_score=excluded.memory_purity_score,
+                    transition_stability_score=excluded.transition_stability_score,
+                    metadata=excluded.metadata
                 """,
                 (
                     assessment.assessment_id,

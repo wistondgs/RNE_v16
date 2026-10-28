@@ -1,1 +1,0 @@
-{"abstentions":200,"brier_score":0.003199857351495,"episodes":200,"experiment":"exp3_brier","gate":{"criterion":"brier_lt_0.20_and_abstentions_gt_zero","passed":true},"quick":false,"scored_outcomes":200,"version":"mci-capability-v1"}

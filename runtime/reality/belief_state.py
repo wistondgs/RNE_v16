@@ -123,15 +123,52 @@ def build_belief_state(
     alarm = observation.get("alarm", False)
     alarm_prob = 0.9 if alarm else 0.1
 
-    # Policy confidence: based on whether memory supports the intervention
+    # Policy confidence: cuánta evidencia de memoria respalda —o CONTRADICE— la política.
+    #
+    # P9.6 paso 3 — DETECTOR MUERTO POR ARITMÉTICA.
+    # Antes:
+    #     policy_conf = 0.5                                    # base
+    #     if memory_hits:
+    #         support_count = <hits con relation_kind == "support">
+    #         policy_conf = min(1.0, 0.5 + 0.2 * support_count)  # solo SUBE
+    #
+    # El piso del productor era 0.5 y el umbral de `policy_drift` es `< 0.50`
+    # (`failure_modes.py`): el productor NO PODÍA EMITIR UN VALOR QUE DISPARARA SU PROPIO
+    # DETECTOR. `policy_drift` era inalcanzable por construcción, no por buena salud.
+    #
+    # Se arregla el PRODUCTOR, no el umbral. Por qué:
+    #   - El umbral 0.50 significa algo: "confianza por debajo de una moneda al aire = deriva".
+    #     Subirlo (p.ej. a 0.70) haría que el detector disparara con el valor BASE del
+    #     productor, es decir con CERO evidencia: la ausencia de memoria se leería como
+    #     deriva. Ese es el error simétrico del que este paquete viene a desarmar.
+    #   - El defecto real estaba en el productor: los hits cuya `relation_kind` es
+    #     "contradiction" —memorias donde la intervención NO produjo el efecto esperado—
+    #     no contaban para NADA. "La evidencia dice que mi política no funciona" y "no tengo
+    #     evidencia" daban el mismo 0.5. Al no existir camino descendente, la confianza solo
+    #     podía subir. La evidencia en contra existía en la memoria (el condensador la guarda:
+    #     `mfm_lite/condenser.py:65`) y el productor la tiraba a la basura.
+    #
+    # Ahora la evidencia es SIMÉTRICA: el soporte sube la confianza, la contradicción la baja,
+    # con el mismo peso. Sin memoria, sigue valiendo 0.5 = "no sé" (ni sano ni enfermo), que
+    # NO dispara el detector. Con memoria contradictoria, la confianza cae por debajo de 0.5
+    # y `policy_drift` puede disparar — que era exactamente lo imposible.
     memory_hits = context.get("retrieved_memory", [])
-    policy_conf = 0.5  # base
+    policy_conf = 0.5  # base: sin evidencia, "no sé" (no dispara el detector)
     if memory_hits:
-        support_count = sum(
-            1 for h in memory_hits
-            if isinstance(h, dict) and h.get("structure", {}).get("relation_kind") == "support"
+        support_count = 0
+        contradiction_count = 0
+        for h in memory_hits:
+            if not isinstance(h, dict):
+                continue
+            kind = h.get("structure", {}).get("relation_kind")
+            if kind == "support":
+                support_count += 1
+            elif kind == "contradiction":
+                contradiction_count += 1
+        policy_conf = max(
+            0.0,
+            min(1.0, 0.5 + 0.2 * support_count - 0.2 * contradiction_count),
         )
-        policy_conf = min(1.0, 0.5 + 0.2 * support_count)
 
     # Causal support confidence
     relation_kind = result_data.get("relation_kind")

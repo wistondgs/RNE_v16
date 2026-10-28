@@ -45,14 +45,47 @@ class MFMCondenser:
         result = episode.get("result", {})
         context = episode.get("context", {})
         pattern_key = f"{context.get('formula','NA')}"
+        scenario_metadata = episode.get("scenario_metadata")
+
+        # B25: la variable del mundo NO se hardcodea. Se resuelve desde
+        # scenario_metadata.main_variable (default "temperature"), igual que
+        # continuity_guard.py:32, certificate_builder.py:67 y coherence_obstruction.py:113.
+        # Antes se emitía siempre updated_world["temperature"], asi que en escenarios cuya
+        # variable principal es otra (resource_management -> "stock_level") el meso guardaba
+        # "temperature": None: perdia la variable real Y metia un token "None" en el
+        # structure_json que ensucia el Jaccard de retrieval (_jaccard no filtra None).
+        meta = scenario_metadata if isinstance(scenario_metadata, dict) else {}
+        main_var = meta.get("main_variable") or "temperature"
+        updated_world = result.get("updated_world") or {}
+        main_value = updated_world.get(main_var)
+
         meso_result = {
             "pattern_key": pattern_key,
             "reasoning_sequence": result.get("reasoning_sequence", []),
             "relation_kind": result.get("relation_kind"),
-            "temperature": result.get("updated_world", {}).get("temperature"),
+            # Convención ya establecida en el repo (certificate_builder.py:100-101):
+            # el par (nombre de variable, valor) viaja junto, para que una memoria de otra
+            # variable no sea comparable en silencio con esta.
+            "world_main_variable": main_var,
+            "world_main_variable_value": main_value,
             "ioc_proxy": certificate.ioc_proxy,
         }
-        scenario_metadata = episode.get("scenario_metadata")
+        # Compat ADITIVA: se conserva la clave literal cuando la variable principal ES
+        # "temperature" (mismo back-compat que certificate_builder.py:99 con
+        # "world_temperature"). Deja byte-idéntico el payload de los escenarios térmicos
+        # (los dominantes) y no rompe artifacts/memorias ya persistidas.
+        #
+        # NO ES REMOVIBLE HOY: `runtime/world/min_cognitive_episode.py:99` lee esta clave
+        # por nombre (`top.get("temperature") is not None`) de una memoria RECUPERADA para
+        # decidir la intervención (`activate_cooling`). Ese camino nunca setea
+        # `scenario_metadata`, así que `main_var` cae al default "temperature" y la clave se
+        # emite — el consumidor sigue funcionando **gracias a este shim**. Sacarlo rompe en
+        # silencio la selección de intervención del episodio mínimo.
+        # Para poder retirarla hay que migrar ANTES ese consumidor a
+        # `world_main_variable_value` (backlog B70). Hay un test que custodia esto.
+        if main_var == "temperature":
+            meso_result["temperature"] = main_value
+
         if scenario_metadata:
             meso_result["scenario_metadata"] = scenario_metadata
         return meso_result

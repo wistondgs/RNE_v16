@@ -79,7 +79,7 @@ class _Knobs:
     def read(self):
         return dict(self.values)
 
-    def write(self, changes):
+    def write(self, changes, context=None):  # el contexto lo pone el lazo (§XLII)
         self.values.update(changes)
 
 
@@ -413,3 +413,100 @@ class TestRunnerIntegration:
         result = r2.run_episode()
         assert r2.organism_state.episode_count == 3
         assert result["lineage"]["lineage_id"] == r1.lineage.lineage_id
+
+
+class TestCriterioDeRetencion:
+    """El criterio que decide conservar o revertir una automodificación.
+
+    El histórico es ΔIoC. Medido en este árbol, IoC converge a un único valor
+    hacia el paso ~50 de una vida y desde ahí todo ΔIoC vale exactamente 0.0,
+    con lo que `mean < 0.0` nunca se cumple y el lazo conserva TODA modificación
+    — incluida una que hunda la variable esencial. Estos tests fijan el caso en
+    que las dos cantidades DISCREPAN, que es el único donde el criterio importa.
+    """
+
+    def _aplicar(self, ctrl, margen=0.30):
+        _with_evidence(ctrl)
+        for i in range(2):
+            out = ctrl.observe_episode(
+                organism_state=_state(margin=margen, episode=i),
+                episode_result=_episode_result(margin=margen, retrieved=3),
+                certificate_metadata={},
+            )
+        assert out["action"] == "applied", out
+        return out
+
+    def _ventana(self, ctrl, margenes, delta_ioc):
+        """Cierra la ventana post-aplicación con margen que cae y ΔIoC plano."""
+        out = None
+        for i, m in enumerate(margenes):
+            out = ctrl.observe_episode(
+                organism_state=_state(margin=m, episode=3 + i),
+                episode_result=_episode_result(margin=m),
+                certificate_metadata={"risk_plus": {"delta_ioc": delta_ioc}},
+            )
+        return out
+
+    def test_senal_desconocida_no_arranca(self):
+        try:
+            _controller(_Knobs(), retention_signal="viabilidad")
+        except ValueError as exc:
+            assert "RETENTION_SIGNAL_UNKNOWN" in str(exc)
+        else:  # pragma: no cover
+            raise AssertionError("una señal inexistente debe fallar al construir")
+
+    def test_ioc_plano_conserva_aunque_la_viabilidad_caiga(self):
+        """El default histórico: ΔIoC==0 ⇒ commit, con el margen desplomándose."""
+        knobs = _Knobs()
+        ctrl = _controller(knobs, post_window=2)  # retention_signal="ioc" por default
+        assert ctrl.retention_signal == "ioc"
+        self._aplicar(ctrl, margen=0.30)
+        out = self._ventana(ctrl, [0.20, 0.10], delta_ioc=0.0)
+        assert out["action"] == "committed"
+        assert out["retention_decided_by"] == "delta_ioc"
+        assert out["mean_delta_ioc"] == 0.0
+        # La medida que NO decidió igual se reporta: el margen cayó 0.15 de media.
+        assert out["mean_delta_viability"] == -0.15
+        assert knobs.values["memory_retrieval_limit"] == 2  # el cambio se quedó
+
+    def test_viabilidad_revierte_el_mismo_caso(self):
+        """Mismo episodio, misma ΔIoC plana: con la variable esencial, revierte."""
+        knobs = _Knobs()
+        ctrl = _controller(knobs, post_window=2, retention_signal="viability")
+        self._aplicar(ctrl, margen=0.30)
+        out = self._ventana(ctrl, [0.20, 0.10], delta_ioc=0.0)
+        assert out["action"] == "reverted"
+        assert out["retention_decided_by"] == "delta_viability"
+        assert out["mean_delta_viability"] == -0.15
+        assert knobs.values["memory_retrieval_limit"] == 3  # mando devuelto
+        assert out["restored_state"].state_id == "state-1"
+        assert len(ctrl.lineage.rollback_ancestry) == 1
+
+    def test_viabilidad_conserva_lo_que_mejora_el_margen(self):
+        """No es un revertidor universal: si el margen sube, se conserva."""
+        knobs = _Knobs()
+        ctrl = _controller(knobs, post_window=2, retention_signal="viability")
+        self._aplicar(ctrl, margen=0.30)
+        out = self._ventana(ctrl, [0.40, 0.50], delta_ioc=0.0)
+        assert out["action"] == "committed"
+        assert out["mean_delta_viability"] == 0.15
+        assert knobs.values["memory_retrieval_limit"] == 2
+
+    def test_both_revierte_si_cualquiera_de_las_dos_se_daña(self):
+        knobs = _Knobs()
+        ctrl = _controller(knobs, post_window=2, retention_signal="both")
+        self._aplicar(ctrl, margen=0.30)
+        out = self._ventana(ctrl, [0.20, 0.10], delta_ioc=0.02)  # IoC mejora
+        assert out["action"] == "reverted"
+        assert out["retention_decided_by"] == "delta_viability"
+        assert out["mean_delta_ioc"] == 0.02
+
+    def test_ioc_sigue_revirtiendo_cuando_el_cierre_empeora(self):
+        """Ninguna de las pruebas históricas cambia: el default queda intacto."""
+        knobs = _Knobs()
+        ctrl = _controller(knobs, post_window=2)
+        self._aplicar(ctrl, margen=0.30)
+        out = self._ventana(ctrl, [0.25, 0.20], delta_ioc=-0.05)
+        assert out["action"] == "reverted"
+        assert out["retention_decided_by"] == "delta_ioc"
+        assert knobs.values["memory_retrieval_limit"] == 3

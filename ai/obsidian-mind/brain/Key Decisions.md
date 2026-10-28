@@ -26,16 +26,6 @@ Rationale: base de reparación = checkout `feat/reasoning-family-quality-deep` e
 
 Related: [[Cierre de adjudicación y reconciliación externa 2026-07-10]], [[RNFE v16 — Backlog de Reparación]], [[RNFE v16 Project Memory]]
 
-## 2026-07-10 - Auditoría y merge de la campaña neural N0–N6 + P-SEG
-
-Decision: auditar la entrega neural de Codex (`7e1e88b`) con contexto fresco (mismo gate que Claude) y mergearla a main como **código inerte** (default OFF) tras **verificación ejecutada** (26 tests verde en el worktree, cero imports en caminos vivos por comando, no por lectura). A-M0 + campaña → `main = 3121b4c`. P-SEG (B48+B39) ratificado (auditor APROBAR) y commiteado en feat.
-
-Status: accepted — gate de promoción por órgano (shadow→provisional) pendiente: tests artifact-missing/schema-inválido + campo "criterio de promoción" en los 7 ADRs.
-
-Rationale: el aislamiento y la no-autoridad se confirman por comando; la cobertura incompleta no bloquea código inerte, define el trabajo de promoción. Principio A-M0: sustrato (P-SEG) y órgano (N1) son simbióticos.
-
-Related: [[Auditoría y merge campaña neural N0-N6 2026-07-10]], [[RNFE v16 — Backlog de Reparación]], [[Protocolo de coordinación campaña neural]]
-
 Architectural or workflow decisions worth recalling. Link to the full [[Decision Record]] when one exists.
 
 -

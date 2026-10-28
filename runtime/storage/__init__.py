@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 from .config import StorageConfig
+from .contract_validation import ACTIVE_CONTRACTS, ContractViolationError
 from .factory import StorageFactory
 from .facade import StorageFacade
 from .interfaces import (
@@ -67,10 +68,12 @@ def reset_storage() -> None:
 
 
 __all__ = [
+    "ACTIVE_CONTRACTS",
     "ArtifactIndexStore",
     "ArtifactRecord",
     "CertificationStore",
     "ConstitutionalRiskStateRecord",
+    "ContractViolationError",
     "EpisodeCertificateRecord",
     "FailureAtlasEventRecord",
     "LedgerStore",

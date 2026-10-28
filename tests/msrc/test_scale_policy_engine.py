@@ -57,7 +57,10 @@ def test_policy_commits_positive_probe():
 
     action = engine.decide(catalog=catalog, state=state, estimate=_estimate(required=0.8), probe_result=probe)
     assert action.action_type == "commit_probe_result"
-    assert state.current_scale_id == "5x5"
+    # La escala destino viaja en la ACCION. El motor NO la aplica: el commit es del
+    # controller y solo ocurre si la transicion no aborta (SSOT / CANON 3.1.6).
+    assert action.target_scale_id == "5x5"
+    assert state.current_scale_id == "1x1"
 
 
 def test_policy_discards_negative_probe():
@@ -93,7 +96,9 @@ def test_policy_downgrade_requires_persistent_evidence():
 
     assert actions[-1].action_type == "downgrade_scale"
     assert actions[-1].target_scale_id == "1x1"
-    assert state.current_scale_id == "1x1"
+    # El motor decide; no aplica. La escala del state sigue siendo la de origen
+    # hasta que el controller commitee la transicion (SSOT / CANON 3.1.6).
+    assert state.current_scale_id == "5x5"
 
 
 def test_aggressive_policy_scales_before_baseline_under_warning_signal():

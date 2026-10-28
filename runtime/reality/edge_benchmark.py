@@ -29,6 +29,7 @@ from runtime.reality.transition_stress import (
     classify_edge,
     run_edge_stress_test,
 )
+from runtime.certification.trace_integrity import assess_trace_integrity
 from runtime.certification.transfer_posterior import compute_transfer_posterior
 
 
@@ -79,6 +80,8 @@ def run_edge_benchmark(
 
     # Run stress test per edge
     edge_results: List[EdgeStressResult] = []
+    # B77: evidencia de integridad de traza REALMENTE medida, episodio por episodio.
+    trace_integrity_checks: List[Dict[str, Any]] = []
 
     for src_name in scenarios:
         for tgt_name in scenarios:
@@ -115,6 +118,23 @@ def run_edge_benchmark(
                 belief = build_belief_state(episode_result=result)
                 probe_beliefs.append(belief)
 
+                # B77 — la integridad de traza se MIDE, no se afirma.
+                # Antes: `trace_integrity=True` hardcodeado. Eso no era un default:
+                # era una MENTIRA con forma de medición, y el posterior la premia
+                # (transfer_posterior.py:128 -> `trace_val = 1.0 if trace_integrity
+                # else 0.3`). Darle invocador a este benchmark sin arreglar esto
+                # habría propagado la mentira al ledger.
+                integrity = assess_trace_integrity(result.get("episode"))
+                trace_integrity_checks.append(
+                    {
+                        "edge": f"{src_name}->{tgt_name}",
+                        "integral": integrity.integral,
+                        "reason": integrity.reason,
+                        "step_count": integrity.step_count,
+                        "checks_applied": list(integrity.checks_applied),
+                    }
+                )
+
                 # Compute transfer posterior for this probe episode
                 post_result = compute_transfer_posterior(
                     source_scenario=src_name,
@@ -123,7 +143,7 @@ def run_edge_benchmark(
                     morphism_score=morphism.overall_score,
                     memory_purity=belief.memory_purity_confidence,
                     transfer_stability=belief.composite_confidence,
-                    trace_integrity=True,
+                    trace_integrity=integrity.integral,
                     policy_confidence=belief.policy_confidence,
                     causal_support=belief.causal_support_confidence,
                 )
@@ -164,6 +184,24 @@ def run_edge_benchmark(
     # Build graph summary
     graph_summary = _build_graph_summary(edge_results)
 
+    # B77 — la integridad de traza que el benchmark MIDIÓ, declarada en el reporte.
+    # Si `integral_rate < 1.0`, el posterior de esos episodios YA está penalizado
+    # (no se lo maquilla): el reporte dice cuántas trazas pasaron y cuántas no.
+    integral_count = sum(1 for c in trace_integrity_checks if c["integral"])
+    trace_integrity_summary = {
+        "episodes_checked": len(trace_integrity_checks),
+        "integral_count": integral_count,
+        "integral_rate": (
+            round(integral_count / len(trace_integrity_checks), 4)
+            if trace_integrity_checks
+            else None
+        ),
+        "measured": True,  # B77: medida, no afirmada
+        "failure_reasons": sorted(
+            {c["reason"] for c in trace_integrity_checks if not c["integral"]}
+        ),
+    }
+
     # Persist
     report_content = {
         "bench_run_id": bench_run_id,
@@ -171,6 +209,8 @@ def run_edge_benchmark(
         "scenarios": scenarios,
         "edge_results": [asdict(e) for e in edge_results],
         "graph_summary": graph_summary,
+        "trace_integrity": trace_integrity_summary,
+        "trace_integrity_checks": trace_integrity_checks,
     }
 
     artifact = storage.materialize_artifact(
@@ -192,6 +232,7 @@ def run_edge_benchmark(
             "bench_run_id": bench_run_id,
             "timestamp": utc_now_iso(),
             "graph_summary": graph_summary,
+            "trace_integrity": trace_integrity_summary,
         },
     )
 
@@ -199,6 +240,8 @@ def run_edge_benchmark(
         "bench_run_id": bench_run_id,
         "edge_results": [asdict(e) for e in edge_results],
         "graph_summary": graph_summary,
+        "trace_integrity": trace_integrity_summary,
+        "trace_integrity_checks": trace_integrity_checks,
         "artifact": asdict(artifact),
     }
 

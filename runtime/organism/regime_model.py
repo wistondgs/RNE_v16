@@ -170,21 +170,111 @@ RESOURCE_REGIME = RegimeModel(
     scenario_instances=frozenset({"resource_management"}),
 )
 
+# ── B26.1 — regímenes de los escenarios extra-canon ──────────────────────────
+# Criterio: canon/normative/SCENARIO_CONTRACTS_v1.md §6.3 y §6.4 (re-emisión A17),
+# cruzado con el SSOT vivo de cada escenario (`structural_profile` y
+# `causal_signature`, que el canon declara literales del registry).
+#
+# Cada campo lleva su fuente. Donde el canon NO determina el valor, se dice.
+
+GRID_THERMAL_REGIME = RegimeModel(
+    regime_id="spatial_homeostatic_cooling",
+    # canon §6.3: topología `threshold_single_loop_spatial`, "control sobre estado
+    # distribuido". NO es `threshold_single_loop`: el estado son 25 celdas y la
+    # política lee estructura espacial (hotspots, gradiente, concentración).
+    # El enum de RegimeModel no tiene una casilla nativa para "single_loop espacial";
+    # `distributed` es la que preserva la distinción con thermal (ver metadata).
+    control_topology="distributed",
+    optimization_geometry="minimize",          # canon §6.3
+    intervention_algebra="additive",           # código: temp + heat - cooling_delta
+    counterfactual_law="perturbation",         # canon §6.3: opposite_intervention
+    causal_polarity="lower_is_better",         # canon §6.3
+    # Mismo `cooling_effect` (0.07) y misma ley de control que thermal: la
+    # sensibilidad se HEREDA del régimen que extiende, no se inventa.
+    response_sensitivity=0.6,
+    equilibrium_class="stable",                # mismo atractor homeostático; sin estado oculto
+    recovery_profile="fast",                   # mismo cooling_effect que thermal
+    scenario_instances=frozenset({"grid_thermal_5x5"}),
+    metadata={
+        "canon_ref": "SCENARIO_CONTRACTS_v1.md#6.3",
+        "canon_status": "extra_canon_provisional",
+        "canonical_control_topology": "threshold_single_loop_spatial",
+        "topology_note": (
+            "El enum RegimeModel.control_topology (single_loop|cascade|distributed) no "
+            "representa 'single_loop espacial'. Se elige `distributed` porque el estado "
+            "controlado es distribuido (canon §6.3); la topología canónica exacta queda "
+            "registrada acá para no perderla."
+        ),
+    },
+)
+
+DEFERRED_LOAD_REGIME = RegimeModel(
+    regime_id="deferred_debt_homeostasis",
+    control_topology="single_loop",            # canon §6.4: `threshold_single_loop`
+    optimization_geometry="minimize",          # canon §6.4
+    intervention_algebra="additive",           # código: load + external + load_delta + debt
+    counterfactual_law="perturbation",         # canon §6.4: opposite_intervention
+    causal_polarity="lower_is_better",         # canon §6.4
+    # NO DETERMINADO POR EL CANON. El canon no da semántica de `response_sensitivity`,
+    # y los dos regímenes canónicos no exhiben ninguna fórmula derivable (thermal:
+    # efecto 0.07 -> 0.6; resource: efecto 0.08 -> 0.5, es decir NO monótona en la
+    # magnitud del efecto). Se usa el default neutro del dataclass (0.5) en vez de
+    # fabricar un número con aire de medición. Declarado en metadata.
+    response_sensitivity=0.5,
+    # SÍ determinados, y son lo que define a este régimen:
+    # la deuda diferida rebota la carga hacia la alarma (canon §6.4: "rebota vía
+    # deuda diferida") => el equilibrio APARENTA ser estable y no lo es.
+    equilibrium_class="metastable",
+    # boost_debt=0.08 inyecta deuda 4x más rápido de lo que shed_debt=0.02 la drena.
+    recovery_profile="slow",
+    scenario_instances=frozenset({"deferred_load_trap"}),
+    metadata={
+        "canon_ref": "SCENARIO_CONTRACTS_v1.md#6.4",
+        "canon_status": "extra_canon_provisional",
+        "canonical_control_topology": "threshold_single_loop_with_deferred_consequence",
+        "response_sensitivity_basis": "canon_undetermined_neutral_default",
+        "trap_note": (
+            "La magnitud inmediata de `boost_throughput` (0.15) supera a la de "
+            "`shed_load` (0.05), pero es la trampa: inyecta deuda que rebota. La "
+            "sensibilidad inmediata SOBRESTIMA la respuesta sostenida; por eso no se "
+            "la usa como `response_sensitivity`."
+        ),
+    },
+)
+
 # Registry
 REGIME_REGISTRY: Dict[str, RegimeModel] = {
     "homeostatic_cooling": THERMAL_REGIME,
     "inventory_maximization": RESOURCE_REGIME,
+    "spatial_homeostatic_cooling": GRID_THERMAL_REGIME,
+    "deferred_debt_homeostasis": DEFERRED_LOAD_REGIME,
 }
 
+# B26.1: los 4 escenarios de `runtime/world/registry.py::SCENARIO_REGISTRY` tienen
+# régimen. Un escenario NUEVO sin régimen sigue siendo posible — y por eso B26.2
+# hace EXPLÍCITA la omisión en vez de puntuarla como renormalización perfecta.
 SCENARIO_TO_REGIME: Dict[str, str] = {
     "thermal_homeostasis": "homeostatic_cooling",
     "resource_management": "inventory_maximization",
+    "grid_thermal_5x5": "spatial_homeostatic_cooling",
+    "deferred_load_trap": "deferred_debt_homeostasis",
 }
 
 
 def get_regime_for_scenario(scenario_name: str) -> RegimeModel | None:
-    """Obtiene el régimen latente para un escenario."""
+    """Obtiene el régimen latente para un escenario.
+
+    Devuelve ``None`` si el escenario no tiene régimen mapeado. ``None`` significa
+    NO SÉ RENORMALIZAR ESTO — no significa "renormalización trivial". Quien lo
+    consuma debe tratarlo como AUSENCIA DE EVIDENCIA (ver B26.2: court_runtime,
+    failure_atlas y risk_process se abstienen ante un cruce no mapeado).
+    """
     regime_id = SCENARIO_TO_REGIME.get(scenario_name)
     if regime_id is None:
         return None
     return REGIME_REGISTRY.get(regime_id)
+
+
+def is_scenario_mapped(scenario_name: str) -> bool:
+    """True si el escenario tiene un régimen latente conocido."""
+    return get_regime_for_scenario(scenario_name) is not None

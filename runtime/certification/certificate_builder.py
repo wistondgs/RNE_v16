@@ -105,6 +105,9 @@ class CertificateBuilder:
                 "risk_plus": risk_plus or {},
                 "omega": omega or {},
                 "belief_state": episode_result.get("belief_state"),
+                # Evidencia aditiva: nunca participa en el cálculo de verdict,
+                # risk_score ni promotion_candidate.
+                "neural_symbiosis": episode_result.get("neural_symbiosis") or {},
             },
         )
         return certificate

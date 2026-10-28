@@ -62,11 +62,14 @@ def test_scale_audit_logger_writes_events_and_jsonl(tmp_path: Path):
         real_artifact_cost=1.8,
         ioc_delta=0.2,
         viability_delta=0.0,
-        rollback_applied=False,
+        transition_aborted=False,
         timestamp="2026-04-20T00:00:00Z",
         metadata={},
     )
     logger.log_transition(transition)
+    # El alias legacy sigue disponible para los consumidores vivos que lo leen.
+    assert transition.rollback_applied is False
+    assert transition.to_dict()["rollback_applied"] is False
 
     events = storage.list_events(run_id="run-audit", limit=50)
     event_types = [e.event_type for e in events]

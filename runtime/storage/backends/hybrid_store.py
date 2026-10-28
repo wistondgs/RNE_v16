@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Sequence
 
 from ..interfaces import StorageBackend
+
+logger = logging.getLogger(__name__)
 from ..records import (
     ArtifactRecord,
     ConstitutionalRiskStateRecord,
@@ -64,9 +67,26 @@ class HybridStorageBackend(StorageBackend):
                 f"Dual-write estricto fallo en {method}: {[str(e) for e in errors]}"
             )
 
+        # Resiliencia dual-write no estricta: si un store falla pero el otro
+        # responde, devolvemos el resultado bueno. El error del store caido NO
+        # se propaga; lo hacemos observable con un warning (metodo + cual store).
         if primary_result is not None:
+            if fallback_error is not None:
+                logger.warning(
+                    "dual-write %s: el store fallback fallo pero el primary "
+                    "respondio; error descartado (strict_dual_write=False): %r",
+                    method,
+                    fallback_error,
+                )
             return primary_result
         if fallback_result is not None:
+            if primary_error is not None:
+                logger.warning(
+                    "dual-write %s: el store primary fallo pero el fallback "
+                    "respondio; error descartado (strict_dual_write=False): %r",
+                    method,
+                    primary_error,
+                )
             return fallback_result
         if primary_error and fallback_error:
             raise RuntimeError(
@@ -81,12 +101,21 @@ class HybridStorageBackend(StorageBackend):
     def _read_with_fallback(self, method: str, **kwargs: object) -> list:
         first = self.primary if self.prefer_primary_reads else self.fallback
         second = self.fallback if self.prefer_primary_reads else self.primary
+        first_label = "primary" if self.prefer_primary_reads else "fallback"
         try:
             rows = getattr(first, method)(**kwargs)
             if rows:
                 return rows
-        except Exception:  # pragma: no cover - cubierto en integracion
-            pass
+        except Exception as exc:  # pragma: no cover - cubierto en integracion
+            # El error del store preferido se traga al caer al secundario;
+            # lo hacemos observable con un warning (metodo + cual store).
+            logger.warning(
+                "read %s: el store %s fallo; se recurre al store secundario. "
+                "Error descartado: %r",
+                method,
+                first_label,
+                exc,
+            )
         return getattr(second, method)(**kwargs)
 
     def append_event(self, event: StoredEvent) -> StoredEvent:
@@ -154,17 +183,29 @@ class HybridStorageBackend(StorageBackend):
     def upsert_session_bridge(
         self, record: SessionBridgeRecord
     ) -> SessionBridgeRecord:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         return self._dual_write("upsert_session_bridge", record)  # type: ignore[return-value]
 
     def get_session_bridge(self, session_id: str) -> SessionBridgeRecord | None:
+        """Capacidad reservada: implementada en toda la capa de storage pero SIN
+        productores/consumidores en el runtime actual (B23). No remover sin
+        decision de producto."""
         first = self.primary if self.prefer_primary_reads else self.fallback
         second = self.fallback if self.prefer_primary_reads else self.primary
+        first_label = "primary" if self.prefer_primary_reads else "fallback"
         try:
             row = first.get_session_bridge(session_id)
             if row is not None:
                 return row
-        except Exception:  # pragma: no cover - cubierto en integracion
-            pass
+        except Exception as exc:  # pragma: no cover - cubierto en integracion
+            logger.warning(
+                "read get_session_bridge: el store %s fallo; se recurre al "
+                "store secundario. Error descartado: %r",
+                first_label,
+                exc,
+            )
         return second.get_session_bridge(session_id)
 
     def write_reality_assessment(
@@ -210,6 +251,7 @@ class HybridStorageBackend(StorageBackend):
     ) -> EpisodeCertificateRecord | None:
         first = self.primary if self.prefer_primary_reads else self.fallback
         second = self.fallback if self.prefer_primary_reads else self.primary
+        first_label = "primary" if self.prefer_primary_reads else "fallback"
         try:
             row = first.get_episode_certificate(
                 certificate_id=certificate_id,
@@ -217,8 +259,13 @@ class HybridStorageBackend(StorageBackend):
             )
             if row is not None:
                 return row
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "read get_episode_certificate: el store %s fallo; se recurre "
+                "al store secundario. Error descartado: %r",
+                first_label,
+                exc,
+            )
         return second.get_episode_certificate(
             certificate_id=certificate_id,
             episode_id=episode_id,
@@ -265,6 +312,15 @@ class HybridStorageBackend(StorageBackend):
             min_ioc_proxy=min_ioc_proxy,
             limit=limit,
         )
+
+    def purge_expired_memory_records(self) -> int:
+        # B2 - Purga en AMBOS stores (borrado físico en cada backend), pero devuelve la
+        # cuenta LÓGICA (la del primary), no la suma: bajo dual-write cada memoria vive
+        # en ambos stores, así que sumar contaría dos veces cada memoria lógica. El
+        # fallback se purga igual (efecto físico); solo se descarta su conteo.
+        deleted = self.primary.purge_expired_memory_records()
+        self.fallback.purge_expired_memory_records()
+        return deleted
 
     def write_transfer_assessment(
         self, assessment: TransferAssessmentRecord,

@@ -1,105 +1,24 @@
-RNE STRICT PROPRIETARY LICENSE
-Version 1.0 — 26 July 2026
+This is free and unencumbered software released into the public domain.
 
-Copyright (c) 2026 Necktral and the RNE rights holders.
-All rights reserved.
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
 
-1. PROPRIETARY STATUS
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
 
-The source code, object code, models, weights, datasets, schemas, prompts,
-documentation, experiments, traces, designs, and every other component of this
-distribution (collectively, the "System") are confidential proprietary
-materials. Possession of a copy does not transfer ownership or grant a license.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
 
-2. NO PERMISSION BY DEFAULT
-
-Except under a separate written agreement signed by an authorized RNE rights
-holder, no person or entity may access, use, execute, host, copy, reproduce,
-modify, adapt, translate, study, benchmark, evaluate, train from, fine-tune,
-distill, extract, reverse engineer, decompile, disassemble, derive from,
-publish, disclose, transmit, distribute, sublicense, sell, lease, commercialize,
-or otherwise exploit any part of the System.
-
-No permission is granted for internal use, research, education, evaluation,
-interoperability work, security analysis, model training, competitive analysis,
-software-as-a-service, or use through an automated agent. Any permission must
-be express, written, limited in scope and duration, and is revocable as stated
-in that agreement.
-
-3. CONFIDENTIALITY AND ACCESS CONTROL
-
-An authorized recipient shall:
-
-  a. disclose the System only to individually authorized persons with a strict
-     need to know and equivalent written confidentiality obligations;
-  b. apply least-privilege access, encryption in transit and at rest, auditable
-     access logs, and controls reasonably sufficient to prevent extraction;
-  c. make no copy except one expressly necessary for the authorized purpose;
-  d. report suspected loss, access, disclosure, or compromise immediately; and
-  e. return or securely destroy every copy upon request or termination, subject
-     only to mandatory law.
-
-Public repositories, public package registries, shared model hubs, public
-benchmarks, and disclosure to generative-AI or code-assistant services are
-prohibited unless separately authorized in writing.
-
-4. RESTRICTIONS ON DERIVATIVES AND OUTPUTS
-
-All modifications, adaptations, ports, trained or fine-tuned artifacts,
-translations, derived datasets, structural mappings, and other derivative works
-based on the System remain subject to this License. No clean-room, interface,
-output-observation, or partial-reimplementation method creates an implied
-license. Rights in independently protectable contributions are not transferred
-unless a separate signed agreement says otherwise.
-
-5. NO IMPLIED RIGHTS
-
-No patent, copyright, database, trade-secret, trademark, publicity, or other
-right is granted by implication, estoppel, exhaustion, or otherwise. The names,
-marks, identifiers, and provenance notices of RNE may not be used without prior
-written permission. Removal or alteration of ownership, integrity, provenance,
-or access-control notices is prohibited.
-
-6. ENFORCEMENT AND TERMINATION
-
-Any unauthorized act is a material breach and an infringement. Any permission
-terminates automatically upon breach. The rights holders may seek injunctive
-relief, specific performance, recovery of profits and damages, reasonable legal
-fees where permitted, and every other remedy available by law or contract.
-Failure to enforce a provision once is not a waiver.
-
-7. MANDATORY-LAW EXCEPTIONS
-
-Nothing in this License restricts a right that applicable law makes impossible
-to waive or prohibit. A person relying on such a right bears responsibility for
-establishing its applicability and shall, where law permits, give advance
-written notice and limit the activity to the minimum legally required.
-
-8. NO WARRANTY; LIMITATION OF LIABILITY
-
-THE SYSTEM IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
-KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR
-PURPOSE, ACCURACY, SECURITY, NON-INFRINGEMENT, OR CONTINUITY. TO THE MAXIMUM
-EXTENT PERMITTED BY LAW, THE RIGHTS HOLDERS SHALL NOT BE LIABLE FOR ANY DIRECT,
-INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES,
-OR FOR LOSS OF DATA, PROFITS, REVENUE, GOODWILL, OR BUSINESS INTERRUPTION.
-
-9. SEVERABILITY AND PRECEDENCE
-
-If a provision is held unenforceable, it shall be narrowed only as much as
-necessary and the remaining provisions remain effective. A separately signed
-agreement controls only to the extent that it expressly conflicts with this
-License.
-
-10. LEGACY PUBLIC-DOMAIN MATERIAL
-
-This distribution previously contained an Unlicense notice. Rights already
-validly and irrevocably dedicated to the public domain, and third-party
-components governed by their own notices, are not retroactively withdrawn.
-This proprietary notice applies to protectable material not previously and
-irrevocably released, including later modifications and additions, to the
-maximum extent permitted by law. Recipients must review version history and
-third-party notices to determine the license applicable to a particular
-component or revision.
-
-NO USE IS AUTHORIZED MERELY BECAUSE THE SYSTEM IS ACCESSIBLE.
+For more information, please refer to <https://unlicense.org>

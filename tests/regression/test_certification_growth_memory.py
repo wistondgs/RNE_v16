@@ -66,8 +66,12 @@ def test_growth_pipeline_persists_certificates_and_memory_levels(tmp_path: Path)
     scales = {item.scale for item in memories}
     assert "micro" in scales
     assert "meso" in scales
-    assert all(item.no_interference for item in memories)
     assert "macro" in scales
+    # B24: acá había `assert all(item.no_interference for item in memories)`, que
+    # trataba un campo NO COMPUTADO como si fuera evidencia de no-interferencia.
+    # Ese `True` es el default de schema (columna NOT NULL), no una medición: no
+    # hay lógica que lo calcule ni consumidor que lo lea. Afirmar sobre él no
+    # verifica NADA de la memoria. Ver tests/regression/test_no_interference_declared_uncomputed.py
 
     # Solo para evitar variables sin uso en asserts y dejar trazabilidad.
     assert isinstance(third["certification"]["certificate_id"], str)

@@ -1,4 +1,10 @@
-"""Persistencia multiescala de episodios certificados."""
+"""Persistencia multiescala de episodios certificados.
+
+B24: el argumento `no_interference=True` de las tres escrituras de abajo es un
+**campo NO computado**; se escribe `True` por default de schema (la columna es
+NOT NULL). **No confiar en este valor**: no hay consumidor y nadie verificó que
+esta memoria no interfiera con otras. Ver `runtime/storage/records.py`.
+"""
 
 from __future__ import annotations
 
@@ -32,7 +38,7 @@ class EpisodeMemoryStore:
             certificate_id=certificate_id,
             ioc_proxy=ioc_proxy,
             ttl_seconds=7 * 24 * 3600,
-            no_interference=True,
+            no_interference=True,  # B24: NO computado (default de schema); no confiar
             support_count=1,
             metadata=metadata,
         )
@@ -58,7 +64,7 @@ class EpisodeMemoryStore:
             certificate_id=certificate_id,
             ioc_proxy=ioc_proxy,
             ttl_seconds=30 * 24 * 3600,
-            no_interference=True,
+            no_interference=True,  # B24: NO computado (default de schema); no confiar
             support_count=1,
             metadata=metadata,
         )
@@ -85,7 +91,7 @@ class EpisodeMemoryStore:
             certificate_id=certificate_id,
             ioc_proxy=ioc_proxy,
             ttl_seconds=None,
-            no_interference=True,
+            no_interference=True,  # B24: NO computado (default de schema); no confiar
             support_count=support_count,
             metadata=metadata,
         )

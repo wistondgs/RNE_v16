@@ -17,8 +17,6 @@ from z3 import Bool, BoolRef, Not, Solver, Z3Exception, sat, unsat
 
 from runtime.lotf import LOTFMin
 from runtime.reasoning.contracts import FamilyResult
-from runtime.symbolic.constraint_registry import ConstraintRegistry
-from runtime.symbolic.tracked_solver import TrackedSolver
 
 from .translator import (
     UnsupportedLOTFNodeError,
@@ -204,7 +202,6 @@ def _build_result(
     artifacts: Dict[str, Any],
     ded_validated: bool,
     failure_mode: str | None = None,
-    ded_core_report: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     state_delta = {
         "ded_validated": ded_validated,
@@ -215,8 +212,6 @@ def _build_result(
         "ded_formula_normalized": ded_formula_normalized,
         "ded_solver_backend": SOLVER_BACKEND,
     }
-    if ded_core_report is not None:
-        state_delta["ded_core_report"] = ded_core_report
     return FamilyResult(
         family=FAMILY_ID,
         status=status,
@@ -305,67 +300,18 @@ def run_ded_engine(state: Mapping[str, Any] | None) -> Dict[str, Any]:
     artifacts["assumptions_used"] = assumption_artifacts
 
     try:
-        registry = payload.get("_constraint_registry")
-        provided_solver = payload.get("_tracked_solver")
-        replay_unit_id = payload.get("_replay_unit_id")
-        logical_time = payload.get("_preaction_logical_time")
-        tracked = (
-            isinstance(registry, ConstraintRegistry)
-            and isinstance(replay_unit_id, str)
-            and isinstance(logical_time, int)
-        )
-        tracked_solver = None
-        if tracked:
-            tracked_solver = (
-                provided_solver
-                if isinstance(provided_solver, TrackedSolver)
-                else TrackedSolver(
-                    registry=registry,
-                    replay_unit_id=replay_unit_id,
-                    logical_time=logical_time,
-                )
-            )
-            tracked_solver.add_formula(
-                translation.expression,
-                source="scenario",
-                rule_id="lotf_main",
-            )
-            solver = tracked_solver.solver
-        else:
-            solver = Solver()
-            solver.add(translation.expression)
+        solver = Solver()
+        solver.add(translation.expression)
         trackers: Dict[str, DedAssumption] = {}
         for idx, assumption in enumerate(assumptions):
+            tracker_name = f"ded_assumption_{idx}_{assumption.symbol}"
+            tracker = Bool(tracker_name)
             expr = translation.symbol_table[assumption.symbol]
-            if tracked_solver is not None:
-                tracker_name = tracked_solver.add_assumption(
-                    expr,
-                    assumption.value,
-                    source=assumption.source,
-                    rule_id=assumption.symbol,
-                )
-            else:
-                tracker_name = f"ded_assumption_{idx}_{assumption.symbol}"
-                tracker = Bool(tracker_name)
-                solver.assert_and_track(expr if assumption.value else Not(expr), tracker)
+            solver.assert_and_track(expr if assumption.value else Not(expr), tracker)
             trackers[tracker_name] = assumption
 
-        core_report = None
-        if tracked_solver is not None:
-            # El modelo forma parte del artefacto DED público; pedirlo es necesario
-            # para conservar formato, conclusiones y hashes preexistentes.
-            tracked_status, solver_model, tracked_core, core_report = tracked_solver.check(
-                need_model=True,
-                model_symbols=translation.symbol_table,
-            )
-            solver_result = sat if tracked_status == "SAT" else unsat if tracked_status == "UNSAT" else None
-            artifacts["solver_result"] = tracked_status.lower()
-            artifacts["unsat_core_ids"] = list(tracked_core)
-        else:
-            solver_result = solver.check()
-            solver_model = solver.model() if solver_result == sat else None
-            artifacts["solver_result"] = str(solver_result)
-        core_report_dict = core_report.to_dict() if core_report is not None else None
+        solver_result = solver.check()
+        artifacts["solver_result"] = str(solver_result)
 
         if solver_result == sat:
             entailed_literals = _derive_entailed_literals(
@@ -373,11 +319,7 @@ def run_ded_engine(state: Mapping[str, Any] | None) -> Dict[str, Any]:
                 assumptions=assumptions,
                 symbol_table=translation.symbol_table,
             )
-            artifacts["model"] = (
-                dict(core_report.model or {})
-                if core_report is not None
-                else _serialize_model(translation.symbol_table, solver_model)
-            )
+            artifacts["model"] = _serialize_model(translation.symbol_table, solver.model())
             ded_conclusion = (
                 f"entailed: {', '.join(entailed_literals)}"
                 if entailed_literals
@@ -394,7 +336,6 @@ def run_ded_engine(state: Mapping[str, Any] | None) -> Dict[str, Any]:
                 cost=1.0,
                 artifacts=artifacts,
                 ded_validated=True,
-                ded_core_report=core_report_dict,
             )
 
         if solver_result == unsat:
@@ -422,7 +363,6 @@ def run_ded_engine(state: Mapping[str, Any] | None) -> Dict[str, Any]:
                 cost=1.0,
                 artifacts=artifacts,
                 ded_validated=True,
-                ded_core_report=core_report_dict,
             )
 
         return _build_result(
@@ -437,7 +377,6 @@ def run_ded_engine(state: Mapping[str, Any] | None) -> Dict[str, Any]:
             artifacts=artifacts,
             ded_validated=True,
             failure_mode="solver_unknown",
-            ded_core_report=core_report_dict,
         )
     except Z3Exception as exc:
         artifacts["solver_result"] = "solver_error"

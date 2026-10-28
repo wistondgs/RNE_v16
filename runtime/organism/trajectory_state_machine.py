@@ -134,6 +134,55 @@ class TrajectoryStateMachine:
             modification=current.modification,
         )
 
+    def observe(
+        self,
+        *,
+        trajectory: OrganismTrajectory,
+        regime: str,
+        episode_result: Mapping[str, Any],
+        authoritative_state: OrganismState,
+    ) -> OrganismSnapshot:
+        """Registra la transición que YA HIZO la autoridad. No deriva fisiología.
+
+        D-047 — autoridad única de transición. `advance()` DERIVA un estado nuevo
+        llamando a `advance_state`; eso está bien cuando quien llama es la única
+        autoridad sobre el organismo (el camino del episodio mínimo, que no tiene
+        `OrganismState` propio). En el life-loop **sí hay** autoridad —
+        `Kernel → ScenarioEpisodeRunner → transition_organism_state`— y derivar
+        otra vez producía una SEGUNDA transición fisiológica por paso lógico:
+        medido, `N_advance_state = 2` en 40/40 pasos y 40 `OrganismState`
+        huérfanos que nadie adoptaba (H-045).
+
+        `observe` toma el estado autoritativo y solo lo ASIENTA en la trayectoria
+        del tribunal, que la necesita para `window`, `digest` y el motor de flujo.
+        El snapshot hereda el `state_id` de la autoridad (`from_state`), así que
+        la identidad es continua y no hay huérfanos.
+        """
+        snapshot = OrganismSnapshot.from_state(authoritative_state)
+        self._asentar(trajectory=trajectory, snapshot=snapshot, regime=regime,
+                      episode_result=episode_result)
+        return snapshot
+
+    @staticmethod
+    def _asentar(
+        *,
+        trajectory: OrganismTrajectory,
+        snapshot: OrganismSnapshot,
+        regime: str,
+        episode_result: Mapping[str, Any],
+    ) -> None:
+        """Añade un punto a la trayectoria. Compartido por `advance` y `observe`."""
+        episode = dict(episode_result.get("episode", {}))
+        context = dict(episode.get("context", {}))
+        trajectory.append(
+            snapshot=snapshot,
+            regime=regime,
+            observation=dict(context.get("observation", {})),
+            intervention={"label": context.get("intervention")},
+            counterfactual=dict(context.get("counterfactual", {})),
+            memory_context={"retrieved_memory_count": len(context.get("retrieved_memory", []) or [])},
+        )
+
     def advance(
         self,
         *,
@@ -143,6 +192,7 @@ class TrajectoryStateMachine:
         new_snapshot_id: str,
         timestamp: str,
     ) -> OrganismSnapshot:
+        """Deriva un estado nuevo. Solo legítimo cuando el llamador ES la autoridad."""
         if trajectory.points:
             current_state = trajectory.points[-1].snapshot.to_state()
         else:
@@ -156,16 +206,7 @@ class TrajectoryStateMachine:
             timestamp=timestamp,
         )
         snapshot = OrganismSnapshot.from_state(next_state)
-
-        episode = dict(episode_result.get("episode", {}))
-        context = dict(episode.get("context", {}))
-        trajectory.append(
-            snapshot=snapshot,
-            regime=regime,
-            observation=dict(context.get("observation", {})),
-            intervention={"label": context.get("intervention")},
-            counterfactual=dict(context.get("counterfactual", {})),
-            memory_context={"retrieved_memory_count": len(context.get("retrieved_memory", []) or [])},
-        )
+        self._asentar(trajectory=trajectory, snapshot=snapshot, regime=regime,
+                      episode_result=episode_result)
         return snapshot
 

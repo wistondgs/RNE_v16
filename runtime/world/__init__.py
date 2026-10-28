@@ -37,8 +37,6 @@ from .scenario import (
     ScenarioTransition,
 )
 from .thermal_scenario import ThermalScenario, create_thermal_scenario
-from .thermal_battery_scenario import ThermalBatteryScenario
-from .resource_with_energy_scenario import ResourceWithEnergyScenario
 from .resource_scenario import ResourceScenario, create_resource_scenario
 from .registry import (
     SCENARIO_REGISTRY,
@@ -86,8 +84,6 @@ __all__ = [
     "ScenarioTransition",
     # Scenarios
     "ThermalScenario",
-    "ThermalBatteryScenario",
-    "ResourceWithEnergyScenario",
     "ResourceScenario",
     "create_thermal_scenario",
     "create_resource_scenario",

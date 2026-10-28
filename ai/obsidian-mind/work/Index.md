@@ -33,14 +33,14 @@ Incident docs live in `work/incidents/`. See `Incidents.base` for overview.
 ## Completed
 
 ### Current Quarter
-- [[N4 Línea 1 — fronteras y pipeline de datos]]
+-
 
 ### Previous Quarters
 -
 
 ## Reference
 
-- [[Protocolo de coordinación campaña neural]] — partición por zona, sustrato-antes-que-órgano y cadencia de sync con la campaña neural de Codex.
+-
 
 ## Decisions Log
 
@@ -48,7 +48,6 @@ Incident docs live in `work/incidents/`. See `Incidents.base` for overview.
 |------|----------|--------|------|
 | 2026-07-10 | Install Obsidian Mind as project-local agent memory | accepted | [[Key Decisions#2026-07-10 - Install Obsidian Mind as Project-Local Agent Memory]] |
 | 2026-07-10 | Cierre de adjudicación + reconciliación auditoría externa (68 ítems → 31 paquetes) | accepted | [[Cierre de adjudicación y reconciliación externa 2026-07-10]] |
-| 2026-07-10 | Auditoría + merge campaña neural N0–N6 (inerte) + ratificación P-SEG | accepted | [[Auditoría y merge campaña neural N0-N6 2026-07-10]] |
 
 ## Open Questions
 

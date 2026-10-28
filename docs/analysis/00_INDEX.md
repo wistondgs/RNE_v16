@@ -1,5 +1,30 @@
 # Análisis profundo del código — Índice maestro
 
+> ## ⚠ Revisión 2 en curso — 2026-09-16
+>
+> Todo lo que sigue es la **revisión 1**, y su procedencia declarada no coincide con el
+> árbol donde vive: se escribió el **2026-06-10** contra **`rnfe.v15`**
+> (`/home/wis/dev/rnfe.v15`) en la rama `work/external-reasoner-latency-checkpoint`, que
+> **no existe en este checkout**. Se commiteó aquí el 2026-09-02 (`28a5df6`).
+>
+> | árbol | ficheros `.py` | líneas |
+> |---|---:|---:|
+> | `rnfe.v15` (lo auditado) | 587 | 106.341 |
+> | este repo (`genesis/v2-foundation`) | **858** | **166.758** |
+>
+> **+271 ficheros y +60.417 líneas nunca auditados.** Además, varias referencias
+> `file:line` de la rev.1 ya eran inexactas al escribirse.
+>
+> **Regla de la rev.2:** ninguna afirmación de la rev.1 se hereda. Cada una se reverifica
+> contra HEAD y recibe veredicto `CONFIRMADO` / `DESFASADO` / `CORREGIDO` / `REFUTADO`, o
+> se marca `NUEVO` si no existía.
+>
+> | # | Partición | Estado rev.2 |
+> |---|---|---|
+> | 01 | `contracts/` | ✅ reescrito contra HEAD `433beca` |
+> | 02 | `runtime/storage/` | ✅ reescrito contra HEAD `433beca` |
+> | 03-17 | resto | ⬜ pendiente |
+
 > **Mandato:** análisis línea por línea de **todo** el código del repositorio (incluido el
 > Mamba vendoreado de terceros, `archive/` legacy y `tests/`).
 > **Fuente de verdad: el CÓDIGO.** Los `.md` históricos (PHASE*, EXPERIMENT*, HARDENING_ROADMAP,
